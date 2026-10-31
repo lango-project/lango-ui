@@ -1,0 +1,107 @@
+export class Response
+    methods
+        replace(target, control)
+        remove(target)
+        value(name, value)
+        command(command)
+        setEnabled(target, value)
+        setVisible(target, value)
+        setProperty(target, name, value)
+        focus(target)
+        toast(level, text)
+        result()
+
+Response(formId, seqno)
+    if not is_string(formId) or formId == ""
+        throw "UiResponseRequiresFormId"
+    if not is_number(seqno) or seqno < 0 or seqno % 1 != 0
+        throw "UiResponseRequiresSequenceNumber"
+    @formId = formId
+    @seqno = seqno
+    @replace = {}
+    @remove = []
+    @vals = {}
+    @cmds = []
+
+Response:replace(target, control)
+    if not is_string(target) or target == ""
+        throw "UiReplaceRequiresTarget"
+    if not is_object(control)
+        throw "UiReplaceRequiresControlMap"
+    replacements = @replace
+    replacements[target] = control
+    return this
+
+Response:remove(target)
+    if not is_string(target) or target == ""
+        throw "UiRemoveRequiresTarget"
+    removed = @remove
+    if not removed.includes(target)
+        removed.add(target)
+    return this
+
+Response:value(name, value)
+    if not is_string(name) or name == ""
+        throw "UiValueRequiresName"
+    values = @vals
+    values[name] = value
+    return this
+
+Response:command(command)
+    if not is_object(command) or not is_string(command.type) or command.type == ""
+        throw "UiCommandRequiresType"
+    commands = @cmds
+    commands.add(command)
+    return this
+
+Response:setEnabled(target, value)
+    if not is_bool(value)
+        throw "UiSetEnabledRequiresBoolean"
+    return this.command({ type: "setEnabled", target: target, value: value })
+
+Response:setVisible(target, value)
+    if not is_bool(value)
+        throw "UiSetVisibleRequiresBoolean"
+    return this.command({ type: "setVisible", target: target, value: value })
+
+Response:setProperty(target, name, value)
+    return this.command({ type: "setProperty", target: target, name: name, value: value })
+
+Response:focus(target)
+    return this.command({ type: "focus", target: target })
+
+Response:toast(level, text)
+    return this.command({ type: "toast", level: level, text: text })
+
+Response:result()
+    replacements = @replace
+    removed = @remove
+    values = @vals
+    commands = @cmds
+    return {
+        formId: @formId,
+        seqno: @seqno,
+        ui: { replace: replacements, remove: removed },
+        vals: values,
+        cmds: commands
+    }
+
+test "responses keep values separate from commands"
+    response = new Response("profile", 12)
+    response.replace("address", { type: "Panel", controls: [] })
+    response.value("email", "ada@example.com")
+    response.setEnabled("saveButton", false)
+    response.focus("email")
+    result = response.result()
+    assert result.formId == "profile"
+    assert result.seqno == 12
+    assert result.vals.email == "ada@example.com"
+    assert result.cmds[0].type == "setEnabled"
+    assert result.cmds[1].type == "focus"
+
+test "responses deduplicate removed controls"
+    response = new Response("profile", 0)
+    response.remove("warning")
+    response.remove("warning")
+    result = response.result()
+    assert result.ui.remove.length == 1
