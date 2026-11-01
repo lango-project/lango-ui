@@ -90,7 +90,9 @@ targets use path arrays; a string addresses a top-level control.
 The client supports structural replacement/removal through its `Renderer`.
 `Response.replace(["address", "city"], definition)` builds a nested replacement
 map; `Response.remove(["address", "warning"])` retains the path as an array.
-Top-level string targets remain supported. Control `setValue()` and adapter
-methods must accept validated changes; rollback of adapter failures is not yet
-implemented. Browser builds use the compiler's
+Top-level string targets remain supported. The client rolls back structural
+and value changes on failure. Commands run afterward in list order; a failing
+state command restores its own state, while earlier commands remain committed.
+Custom adapters provide capture/restore hooks; see the client documentation.
+Browser builds use the compiler's
 `--target browser` option; see the client project's demo and build instructions.
