@@ -114,6 +114,7 @@ export class Control
         enabled
         visible
         value
+        events
     methods
         setValue(value)
         getValue()
@@ -150,6 +151,7 @@ Control(name, type)
     @enabled = true
     @visible = true
     @value = null
+    @events = {}
 
 Control:setValue(value)
     @value = value
@@ -159,7 +161,14 @@ Control:getValue()
     return @value
 
 Control:definition()
-    return { type: @type, name: @name, enabled: @enabled, visible: @visible, value: @value }
+    return {
+        type: @type
+        name: @name
+        enabled: @enabled
+        visible: @visible
+        value: @value
+        events: @events
+    }
 
 Container(name = null, type = "Container")
     super(name, type)
@@ -188,7 +197,14 @@ Container:definition()
     definitions = []
     for controls as control
         definitions[definitions.length] = control.definition()
-    return { type: @type, name: @name, controls: definitions, enabled: @enabled, visible: @visible }
+    return {
+        type: @type
+        name: @name
+        controls: definitions
+        enabled: @enabled
+        visible: @visible
+        events: @events
+    }
 
 Form(formId)
     super(formId, "Form")
@@ -204,9 +220,20 @@ Button(options)
     if is_object(options)
         @text = options.text
         @event = options.event
+        if options.events != null
+            @events = options.events
 
 Button:definition()
-    return { type: @type, name: @name, text: @text, event: @event, enabled: @enabled, visible: @visible, value: @value }
+    return {
+        type: @type
+        name: @name
+        text: @text
+        event: @event
+        enabled: @enabled
+        visible: @visible
+        value: @value
+        events: @events
+    }
 
 Response(formId, seqno)
     if !is_string(formId) or formId == ""
