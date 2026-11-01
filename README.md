@@ -72,3 +72,22 @@ are reserved in event value trees.
 
 The current milestone covers server event dispatch and response construction.
 The browser renderer, initial GET shell, and template routing are pending.
+
+## Client protocol core
+
+The client core now lives in the separate `@lango-project/lango-client`
+project. Its protocol entry exports `collectValues(controls)` and
+`applyResponse(controls, response, formId, seqno, effects)`.
+Controls provide `name`, `getValue()`, and `setValue(value)`; containers expose
+their children as `controls` and collect their own nested value map.
+
+The response consumer checks form and request sequence identity and validates
+all value and command targets before applying changes. It currently supports
+`setEnabled`, `setVisible`, and `setProperty` for Boolean `enabled`/`visible`,
+plus ordered `focus` and `toast` effects supplied by the host adapter. Nested
+targets use path arrays; a string addresses a top-level control.
+
+Nonempty structural patches are explicitly rejected in this milestone. Control
+`setValue()` and adapter methods must accept validated changes; rollback of
+adapter failures is not yet implemented. Browser builds use the compiler's
+`--target browser` option; see the client project's demo and build instructions.
