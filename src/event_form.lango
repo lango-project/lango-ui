@@ -1,0 +1,66 @@
+export createForm(values, changes, commands)
+export validateNames(values)
+
+validateNames(values)
+    for values as name: value
+        if name == "__proto__" or name == "constructor" or name == "prototype" or name == "value" or name == "then"
+            throw "UiReservedControlName: ${name}"
+        if is_object(value)
+            validateNames(value)
+    return null
+
+class Node
+    methods
+        get(target, name, receiver)
+        set(target, name, value, receiver)
+
+Node(value, children, path, changes, commands)
+    @value = value
+    @children = children
+    @path = path
+    @changes = changes
+    @commands = commands
+    @properties = {}
+
+Node:get(target, name, receiver)
+    if name == "value"
+        return @value
+    if name in @children
+        return @children[name]
+    if name in @properties
+        return @properties[name]
+    throw "UiFormPropertyUnavailable: ${name}"
+
+Node:set(target, name, value, receiver)
+    nodePath = @path
+    if name == "value"
+        @value = value
+        changes = @changes
+        current = changes
+        for nodePath as index: segment
+            if index == nodePath.length - 1
+                current[segment] = value
+              else
+                  if not (segment in current)
+                      current[segment] = {}
+                  current = current[segment]
+      else
+          @properties[name] = value
+          @commands.add({ type: "setProperty", target: nodePath, name: name, value: value })
+    return true
+
+createForm(values, changes, commands)
+    validateNames(values)
+    children = {}
+    for values as name: value
+        children[name] = createNode(value, [name], changes, commands)
+    return children
+
+createNode(value, nodePath, changes, commands)
+    children = {}
+    if is_object(value)
+        for value as name: child
+            childPath = nodePath.slice()
+            childPath[childPath.length] = name
+            children[name] = createNode(child, childPath, changes, commands)
+    return new Proxy({}, new Node(value, children, nodePath, changes, commands))

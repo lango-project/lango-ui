@@ -1,3 +1,99 @@
+import js "node:fs" as fs
+import js "node:module" as nodeModule
+import js "node:path" as path
+import js "node:util" as util
+import "./event_form"
+    createForm(values, changes, commands)
+    validateNames(values)
+
+export class Dispatcher
+    methods
+        event(options)
+        routesFromXml(file)
+        handle(input)
+
+Dispatcher(appRoot)
+    @appRoot = appRoot
+    @routes = []
+
+Dispatcher:event(options)
+    if !is_string(options.path) or options.path[0] != "/"
+        throw "UiEventRequiresAbsolutePath"
+    if options.function == null
+        throw "UiEventRequiresFunction"
+    routes = @routes
+    for routes as route
+        if route.path == options.path
+            throw "UiDuplicateEventPath: ${options.path}"
+    routes[routes.length] = options
+    return this
+
+Dispatcher:routesFromXml(file)
+    root = xml2obj(fs.readFileSync(file, "utf8"))
+    if root.tag() != "ui"
+        throw "UiConfigRootMustBeUi"
+    for root.children() as tag
+        if tag.tag() != "event"
+            throw "UiConfigRequiresEvent"
+        this.event({ path: tag.path, module: tag.mod, function: tag.func })
+    return this
+
+Dispatcher:handle(input)
+    context request
+    context response
+    context token
+    context log
+    if not is_object(input.values)
+        throw "UiRequestRequiresValues"
+    if !is_string(input.formId) or input.formId == ""
+        throw "UiRequestRequiresFormId"
+    if !is_number(input.seqno) or input.seqno < 0 or input.seqno % 1 != 0
+        throw "UiRequestRequiresSequenceNumber"
+    routes = @routes
+    for routes as route
+        if route.path == request.path
+            if is_string(route.function)
+                resolver = nodeModule/createRequire(path.join(@appRoot, "package.json"))
+                moduleFile = resolver.resolve(route.module)
+                return import_module(moduleFile).then((module)
+                    capture route, input, request, response, token, log
+                    routeModule = { handler: module[route.function] }
+                    return invokeEvent(routeModule, input)
+                )
+            return invokeEvent({ handler: route.function }, input)
+    throw "UiEventNotFound"
+
+invokeEvent(route, input)
+    changes = {}
+    commands = []
+    context form = createForm(input.values, changes, commands)
+    result = route.handler(input)
+    if util/types/isPromise(result)
+        return result.then((values)
+            capture input, changes, commands, form
+            return eventResult(input, changes, commands, values)
+        )
+    return eventResult(input, changes, commands, result)
+
+mergeValues(target, source)
+    for source as name: value
+        if is_object(value) and name in target
+            if is_object(target[name])
+                mergeValues(target[name], value)
+              else
+                  target[name] = value
+          else
+              target[name] = value
+    return target
+
+eventResult(input, changes, commands, values)
+    if values != null
+        if not is_object(values)
+            throw "UiHandlerMustReturnValuesMap"
+        validateNames(values)
+        mergeValues(changes, values)
+    return { formId: input.formId, seqno: input.seqno, ui: { replace: {}, remove: [] }, vals: changes, cmds: commands }
+
 export class Response
     methods
         replace(target, control)
@@ -11,10 +107,111 @@ export class Response
         toast(level, text)
         result()
 
+export class Control
+    properties
+        name
+        type
+        enabled
+        visible
+        value
+    methods
+        setValue(value)
+        getValue()
+        definition()
+
+export class Container : Control
+    properties
+        controls
+    methods
+        add(control)
+        get(name)
+        definition()
+
+export class Form : Container
+
+export class Button : Control
+    properties
+        text
+        event
+    methods
+        definition()
+
+export class Value : Control
+
+Value(name, value)
+    super(name, "Value")
+    @value = value
+
+Control(name, type)
+    if !is_string(type) or type == ""
+        throw "UiControlRequiresType"
+    @name = name
+    @type = type
+    @enabled = true
+    @visible = true
+    @value = null
+
+Control:setValue(value)
+    @value = value
+    return this
+
+Control:getValue()
+    return @value
+
+Control:definition()
+    return { type: @type, name: @name, enabled: @enabled, visible: @visible, value: @value }
+
+Container(name = null, type = "Container")
+    super(name, type)
+    @controls = []
+    @controlsByName = {}
+
+Container:add(control)
+    if not is_kindof(control, Control)
+        throw "UiContainerRequiresControl"
+    controlsByName = @controlsByName
+    if control.name != null and control.name != ""
+        if control.name in this
+            throw "UiDuplicateOrReservedControlName: ${control.name}"
+    controls = @controls
+    controls[controls.length] = control
+    if control.name != null and control.name != ""
+        controlsByName[control.name] = control
+        this[control.name] = control
+    return control
+
+Container:get(name)
+    return @controlsByName[name]
+
+Container:definition()
+    controls = @controls
+    definitions = []
+    for controls as control
+        definitions[definitions.length] = control.definition()
+    return { type: @type, name: @name, controls: definitions, enabled: @enabled, visible: @visible }
+
+Form(formId)
+    super(formId, "Form")
+    @formId = formId
+
+buttonName(options)
+    if is_object(options)
+        return options.name
+    return options
+
+Button(options)
+    super(buttonName(options), "Button")
+    if is_object(options)
+        @text = options.text
+        @event = options.event
+
+Button:definition()
+    return { type: @type, name: @name, text: @text, event: @event, enabled: @enabled, visible: @visible, value: @value }
+
 Response(formId, seqno)
-    if not is_string(formId) or formId == ""
+    if !is_string(formId) or formId == ""
         throw "UiResponseRequiresFormId"
-    if not is_number(seqno) or seqno < 0 or seqno % 1 != 0
+    if !is_number(seqno) or seqno < 0 or seqno % 1 != 0
         throw "UiResponseRequiresSequenceNumber"
     @formId = formId
     @seqno = seqno
@@ -24,54 +221,70 @@ Response(formId, seqno)
     @cmds = []
 
 Response:replace(target, control)
-    if not is_string(target) or target == ""
+    if !is_string(target) or target == ""
         throw "UiReplaceRequiresTarget"
     if not is_object(control)
         throw "UiReplaceRequiresControlMap"
-    replacements = @replace
-    replacements[target] = control
+    @replace[target] = control
     return this
 
 Response:remove(target)
-    if not is_string(target) or target == ""
+    if !is_string(target) or target == ""
         throw "UiRemoveRequiresTarget"
-    removed = @remove
-    if not removed.includes(target)
-        removed.add(target)
+    if not @remove.includes(target)
+        @remove.add(target)
     return this
 
 Response:value(name, value)
-    if not is_string(name) or name == ""
+    if !is_string(name) or name == ""
         throw "UiValueRequiresName"
-    values = @vals
-    values[name] = value
+    @vals[name] = value
     return this
 
 Response:command(command)
-    if not is_object(command) or not is_string(command.type) or command.type == ""
+    if !is_object(command) or !is_string(command.type) or command.type == ""
         throw "UiCommandRequiresType"
-    commands = @cmds
-    commands.add(command)
+    @cmds.add(command)
     return this
 
 Response:setEnabled(target, value)
     if not is_bool(value)
         throw "UiSetEnabledRequiresBoolean"
-    return this.command({ type: "setEnabled", target: target, value: value })
+    return this.command({
+        type: "setEnabled"
+        target: target
+        value: value
+    })
 
 Response:setVisible(target, value)
     if not is_bool(value)
         throw "UiSetVisibleRequiresBoolean"
-    return this.command({ type: "setVisible", target: target, value: value })
+    return this.command({
+        type: "setVisible"
+        target: target
+        value: value
+    })
 
 Response:setProperty(target, name, value)
-    return this.command({ type: "setProperty", target: target, name: name, value: value })
+    return this.command({
+        type: "setProperty"
+        target: target
+        name: name
+        value: value
+    })
 
 Response:focus(target)
-    return this.command({ type: "focus", target: target })
+    return this.command({
+        type: "focus"
+        target: target
+    })
 
 Response:toast(level, text)
-    return this.command({ type: "toast", level: level, text: text })
+    return this.command({
+        type: "toast"
+        level: level
+        text: text
+    })
 
 Response:result()
     replacements = @replace
@@ -105,3 +318,61 @@ test "responses deduplicate removed controls"
     response.remove("warning")
     result = response.result()
     assert result.ui.remove.length == 1
+
+test "forms expose uniquely named controls as properties"
+    form = new Form("profile")
+    form.add(new Button("saveButton"))
+    form.saveButton.enabled = false
+    assert form.saveButton.enabled == false
+    assert form.get("saveButton") == form.saveButton
+
+test "forms reject duplicate control names"
+    form = new Form("profile")
+    form.add(new Button("saveButton"))
+    try
+        form.add(new Button("saveButton"))
+        assert false
+    catch error
+        assert error == "UiDuplicateOrReservedControlName: saveButton"
+
+test "UI events turn hierarchical form writes into values and commands"
+    result = runProfileEvent()
+    assert result.vals.address.city == "Istanbul"
+    assert result.cmds[0].target[0] == "saveButton"
+    assert result.cmds[0].name == "enabled"
+    assert result.cmds[0].value == false
+
+test "unnamed containers and names in separate containers are supported"
+    container = new Container()
+    first = new Container("first")
+    second = new Container("second")
+    first.add(new Button({ name: "save", text: "Save", event: "/save" }))
+    second.add(new Button("save"))
+    container.add(first)
+    container.add(second)
+    definition = container.definition()
+    assert definition.controls.length == 2
+    assert first.save.text == "Save"
+
+test "unavailable form state fails explicitly"
+    changes = {}
+    commands = []
+    form = createForm({ button: null }, changes, commands)
+    try
+        enabled = form.button.enabled
+        assert false
+    catch error
+        assert error == "UiFormPropertyUnavailable: enabled"
+
+runProfileEvent()
+    context request = { path: "/app/save" }
+    dispatcher = new Dispatcher("/tmp")
+    dispatcher.event({ path: "/app/save", function: editProfile })
+    return dispatcher.handle({ formId: "profile", seqno: 1, values: { address: { city: "Ankara" }, saveButton: null } })
+
+editProfile(input)
+    context form
+    assert form.address.city.value == "Ankara"
+    form.saveButton.enabled = false
+    form.address.city.value = "Izmir"
+    return { address: { city: "Istanbul" } }
