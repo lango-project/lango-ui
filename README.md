@@ -87,7 +87,10 @@ all value and command targets before applying changes. It currently supports
 plus ordered `focus` and `toast` effects supplied by the host adapter. Nested
 targets use path arrays; a string addresses a top-level control.
 
-Nonempty structural patches are explicitly rejected in this milestone. Control
-`setValue()` and adapter methods must accept validated changes; rollback of
-adapter failures is not yet implemented. Browser builds use the compiler's
+The client supports structural replacement/removal through its `Renderer`.
+`Response.replace(["address", "city"], definition)` builds a nested replacement
+map; `Response.remove(["address", "warning"])` retains the path as an array.
+Top-level string targets remain supported. Control `setValue()` and adapter
+methods must accept validated changes; rollback of adapter failures is not yet
+implemented. Browser builds use the compiler's
 `--target browser` option; see the client project's demo and build instructions.

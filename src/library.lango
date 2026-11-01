@@ -221,19 +221,43 @@ Response(formId, seqno)
     @cmds = []
 
 Response:replace(target, control)
-    if !is_string(target) or target == ""
-        throw "UiReplaceRequiresTarget"
+    path = patchPath(target)
     if not is_object(control)
         throw "UiReplaceRequiresControlMap"
-    @replace[target] = control
+    current = @replace
+    for path as index: name
+        if is_string(current.type)
+            throw "UiOverlappingStructurePatches"
+        if index == path.length - 1
+            if name in current
+                if not is_string(current[name].type)
+                    throw "UiOverlappingStructurePatches"
+            current[name] = control
+          else
+              if not (name in current)
+                  current[name] = {}
+              current = current[name]
     return this
 
 Response:remove(target)
-    if !is_string(target) or target == ""
-        throw "UiRemoveRequiresTarget"
-    if not @remove.includes(target)
-        @remove.add(target)
+    path = patchPath(target)
+    for @remove as existing
+        existingPath = patchPath(existing)
+        if to_json(existingPath) == to_json(path)
+            return this
+    @remove.add(target)
     return this
+
+patchPath(target)
+    path = target
+    if is_string(target)
+        path = [target]
+    if !is_array(path) or path.length == 0
+        throw "UiPatchRequiresTarget"
+    for path as name
+        if !is_string(name) or name == "" or name == "__proto__" or name == "constructor" or name == "prototype"
+            throw "UiPatchRequiresValidTargetName"
+    return path
 
 Response:value(name, value)
     if !is_string(name) or name == ""
@@ -318,6 +342,16 @@ test "responses deduplicate removed controls"
     response.remove("warning")
     result = response.result()
     assert result.ui.remove.length == 1
+
+test "response patches preserve hierarchical paths"
+    response = new Response("profile", 1)
+    response.replace(["address", "city"], { type: "Text", value: "Ankara" })
+    response.remove(["address", "warning"])
+    response.remove(["address", "warning"])
+    result = response.result()
+    assert result.ui.replace.address.city.type == "Text"
+    assert result.ui.remove.length == 1
+    assert result.ui.remove[0][1] == "warning"
 
 test "forms expose uniquely named controls as properties"
     form = new Form("profile")
