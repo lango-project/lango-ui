@@ -35,7 +35,11 @@ Dispatcher:routesFromXml(file)
     for root.children() as tag
         if tag.tag() != "event"
             throw "UiConfigRequiresEvent"
-        this.event({ path: tag.path, module: tag.mod, function: tag.func })
+        this.event({
+            path: tag.path
+            module: tag.mod
+            function: tag.func
+        })
     return this
 
 Dispatcher:handle(input)
@@ -56,21 +60,34 @@ Dispatcher:handle(input)
                 resolver = nodeModule/createRequire(path.join(@appRoot, "package.json"))
                 moduleFile = resolver.resolve(route.module)
                 return import_module(moduleFile).then((module)
-                    capture route, input, request, response, token, log
-                    routeModule = { handler: module[route.function] }
+                    capture route
+                    capture input
+                    capture request
+                    capture response
+                    capture token
+                    capture log
+                    routeModule = {
+                        handler: module[route.function]
+                    }
                     return invokeEvent(routeModule, input)
                 )
-            return invokeEvent({ handler: route.function }, input)
+            return invokeEvent({
+                handler: route.function
+            }, input)
     throw "UiEventNotFound"
 
 invokeEvent(route, input)
-    changes = {}
+    changes = {
+    }
     commands = []
     context form = createForm(input.values, changes, commands)
     result = route.handler(input)
     if util/types/isPromise(result)
         return result.then((values)
-            capture input, changes, commands, form
+            capture input
+            capture changes
+            capture commands
+            capture form
             return eventResult(input, changes, commands, values)
         )
     return eventResult(input, changes, commands, result)
@@ -92,7 +109,17 @@ eventResult(input, changes, commands, values)
             throw "UiHandlerMustReturnValuesMap"
         validateNames(values)
         mergeValues(changes, values)
-    return { formId: input.formId, seqno: input.seqno, ui: { replace: {}, remove: [] }, vals: changes, cmds: commands }
+    return {
+        formId: input.formId
+        seqno: input.seqno
+        ui: {
+            replace: {
+            }
+            remove: []
+        }
+        vals: changes
+        cmds: commands
+    }
 
 export class Response
     methods
@@ -151,7 +178,8 @@ Control(name, type)
     @enabled = true
     @visible = true
     @value = null
-    @events = {}
+    @events = {
+    }
 
 Control:setValue(value)
     @value = value
@@ -173,7 +201,8 @@ Control:definition()
 Container(name = null, type = "Container")
     super(name, type)
     @controls = []
-    @controlsByName = {}
+    @controlsByName = {
+    }
 
 Container:add(control)
     if not is_kindof(control, Control)
@@ -242,9 +271,11 @@ Response(formId, seqno)
         throw "UiResponseRequiresSequenceNumber"
     @formId = formId
     @seqno = seqno
-    @replace = {}
+    @replace = {
+    }
     @remove = []
-    @vals = {}
+    @vals = {
+    }
     @cmds = []
 
 Response:replace(target, control)
@@ -262,7 +293,8 @@ Response:replace(target, control)
             current[name] = control
           else
               if not (name in current)
-                  current[name] = {}
+                  current[name] = {
+                  }
               current = current[name]
     return this
 
@@ -343,16 +375,22 @@ Response:result()
     values = @vals
     commands = @cmds
     return {
-        formId: @formId,
-        seqno: @seqno,
-        ui: { replace: replacements, remove: removed },
-        vals: values,
+        formId: @formId
+        seqno: @seqno
+        ui: {
+            replace: replacements
+            remove: removed
+        }
+        vals: values
         cmds: commands
     }
 
 test "responses keep values separate from commands"
     response = new Response("profile", 12)
-    response.replace("address", { type: "Panel", controls: [] })
+    response.replace("address", {
+        type: "Panel"
+        controls: []
+    })
     response.value("email", "ada@example.com")
     response.setEnabled("saveButton", false)
     response.focus("email")
@@ -372,7 +410,10 @@ test "responses deduplicate removed controls"
 
 test "response patches preserve hierarchical paths"
     response = new Response("profile", 1)
-    response.replace(["address", "city"], { type: "Text", value: "Ankara" })
+    response.replace(["address", "city"], {
+        type: "Text"
+        value: "Ankara"
+    })
     response.remove(["address", "warning"])
     response.remove(["address", "warning"])
     result = response.result()
@@ -407,7 +448,11 @@ test "unnamed containers and names in separate containers are supported"
     container = new Container()
     first = new Container("first")
     second = new Container("second")
-    first.add(new Button({ name: "save", text: "Save", event: "/save" }))
+    first.add(new Button({
+        name: "save"
+        text: "Save"
+        event: "/save"
+    }))
     second.add(new Button("save"))
     container.add(first)
     container.add(second)
@@ -416,9 +461,12 @@ test "unnamed containers and names in separate containers are supported"
     assert first.save.text == "Save"
 
 test "unavailable form state fails explicitly"
-    changes = {}
+    changes = {
+    }
     commands = []
-    form = createForm({ button: null }, changes, commands)
+    form = createForm({
+        button: null
+    }, changes, commands)
     try
         enabled = form.button.enabled
         assert false
@@ -426,14 +474,32 @@ test "unavailable form state fails explicitly"
         assert error == "UiFormPropertyUnavailable: enabled"
 
 runProfileEvent()
-    context request = { path: "/app/save" }
+    context request = {
+        path: "/app/save"
+    }
     dispatcher = new Dispatcher("/tmp")
-    dispatcher.event({ path: "/app/save", function: editProfile })
-    return dispatcher.handle({ formId: "profile", seqno: 1, values: { address: { city: "Ankara" }, saveButton: null } })
+    dispatcher.event({
+        path: "/app/save"
+        function: editProfile
+    })
+    return dispatcher.handle({
+        formId: "profile"
+        seqno: 1
+        values: {
+            address: {
+                city: "Ankara"
+            }
+            saveButton: null
+        }
+    })
 
 editProfile(input)
     context form
     assert form.address.city.value == "Ankara"
     form.saveButton.enabled = false
     form.address.city.value = "Izmir"
-    return { address: { city: "Istanbul" } }
+    return {
+        address: {
+            city: "Istanbul"
+        }
+    }

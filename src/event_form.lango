@@ -20,7 +20,8 @@ Node(value, children, path, changes, commands)
     @path = path
     @changes = changes
     @commands = commands
-    @properties = {}
+    @properties = {
+    }
 
 Node:get(target, name, receiver)
     if name == "value"
@@ -42,25 +43,34 @@ Node:set(target, name, value, receiver)
                 current[segment] = value
               else
                   if not (segment in current)
-                      current[segment] = {}
+                      current[segment] = {
+                      }
                   current = current[segment]
       else
           @properties[name] = value
-          @commands.add({ type: "setProperty", target: nodePath, name: name, value: value })
+          @commands.add({
+              type: "setProperty"
+              target: nodePath
+              name: name
+              value: value
+          })
     return true
 
 createForm(values, changes, commands)
     validateNames(values)
-    children = {}
+    children = {
+    }
     for values as name: value
         children[name] = createNode(value, [name], changes, commands)
     return children
 
 createNode(value, nodePath, changes, commands)
-    children = {}
+    children = {
+    }
     if is_object(value)
         for value as name: child
             childPath = nodePath.slice()
             childPath[childPath.length] = name
             children[name] = createNode(child, childPath, changes, commands)
-    return new Proxy({}, new Node(value, children, nodePath, changes, commands))
+    return new Proxy({
+    }, new Node(value, children, nodePath, changes, commands))

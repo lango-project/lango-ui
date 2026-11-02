@@ -55,7 +55,9 @@ save(input)
     context form
     form.saveButton.enabled = false
     form.address.city.value = "Ankara"
-    return { message: "Saved." }
+    return {
+        message: "Saved."
+    }
 ```
 
 Value writes and the returned map become `vals` (returned entries win).
