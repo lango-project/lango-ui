@@ -307,6 +307,10 @@ export class Container : Control
         definition()
 
 export class Form : Container
+    properties
+        inherit
+    methods
+        definition()
 
 export class Button : Control
     properties
@@ -389,6 +393,15 @@ Container:definition()
 Form(formId)
     super(formId, "Form")
     @formId = formId
+    @inherit = {
+    }
+
+Form:definition()
+    if !is_object(@inherit)
+        throw "UiInheritanceMustBeMap"
+    result = super.definition()
+    result.inherit = @inherit
+    return result
 
 buttonName(options)
     if is_object(options)
@@ -578,6 +591,21 @@ test "forms expose uniquely named controls as properties"
     form.saveButton.enabled = false
     assert form.saveButton.enabled == false
     assert form.get("saveButton") == form.saveButton
+
+test "form definitions carry explicit inherited-value declarations"
+    form = new Form("details")
+    form.inherit = {
+        customerId: "customerId"
+        city: {
+            path: ["address", "city"]
+            writable: true
+        }
+    }
+    definition = form.definition()
+    assert definition.inherit.customerId == "customerId"
+    assert definition.inherit.city.path[1] == "city"
+    assert definition.inherit.city.writable
+    assert definition.controls.length == 0
 
 test "forms reject duplicate control names"
     form = new Form("profile")

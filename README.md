@@ -34,6 +34,28 @@ form.saveButton.enabled = false
 
 Generated JavaScript is published under `dist/` and is never edited manually.
 
+A Form exposes an `inherit` map, included by `definition()`:
+
+```lango
+details = new ui/Form("details")
+details.inherit = {
+    customerId: "customerId"
+    city: {
+        path: ["address", "city"]
+        writable: true
+    }
+}
+```
+
+The nearest parent Form supplies these concrete control values at send time.
+String/path-array entries are read-only; `writable: true` permits response
+`vals` to update the original source. In an event handler, use
+`form.customerId.value` or assign `form.city.value`. The client rejects a write
+to a read-only alias before applying changes; the event proxy itself receives
+ordinary client values and is not an authorization boundary. Aliases cannot
+be command or structural targets. The browser coordinates overlapping managed
+requests; form tokens and later claim changes are independent.
+
 ## Event dispatch
 
 `Dispatcher(appRoot)` owns UI event routes. Call `event({ path, function })`
