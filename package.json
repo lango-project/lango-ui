@@ -8,7 +8,8 @@
   },
   "type": "module",
   "exports": {
-    ".": "./dist/library.mjs"
+    ".": "./dist/library.mjs",
+    "./replay": "./dist/replay.mjs"
   },
   "lango": {
     "source": "src/library.lango",
@@ -23,10 +24,10 @@
   ],
   "scripts": {
     "build": "lango build src/library.lango --out dist/library.mjs",
-    "test": "lango test src/library.lango"
+    "test": "lango test src/library.lango && lango run src/replay_test.lango"
   },
   "devDependencies": {
-    "@lango-project/lango-js": "^0.1.3"
+    "@lango-project/lango-js": "^0.1.8"
   },
   "engines": {
     "node": ">=24"

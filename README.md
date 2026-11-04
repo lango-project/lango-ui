@@ -67,13 +67,62 @@ during the current request raises `UiFormPropertyUnavailable`. Persist such
 state explicitly in a hidden `Value` control. Capture `form` in asynchronous
 callbacks that need it. Handler Promise results are supported.
 
+## Event replay protection
+
+With a verified API token context, Dispatcher reserves each request before
+module loading or handler execution. Its key is the signed `sessionId`, incoming
+`formId`, and incoming `formInstanceId`. The client generates a new instance ID
+for every Session, including replacements and logout restarts. Protected requests
+require a positive safe-integer `seqno` and an instance ID of 1–128 characters.
+
+| Condition | Result |
+| --- | --- |
+| Higher sequence, idle stream | Reserve it and execute the handler; gaps are allowed. |
+| Consumed sequence, including one still running | 409 `UiReplayConflict`, reason `AlreadyConsumed`; no execution. |
+| Higher sequence while another event is running | 409 `UiReplayConflict`, reason `InProgress`; the higher sequence is not consumed. |
+| Full store | 503 `UiReplayUnavailable`; no live record is evicted. |
+| Expired session | 401; no execution. |
+
+Handler exceptions, rejected Promises, and invalid results consume their sequence
+and release the running flag. Changing the path or values cannot reuse a consumed
+sequence. Streams for different sessions, forms, and replacement instances are
+independent. Ping does not consume a sequence. API auth callbacks and request
+audits are outside this guard and may run for repeated HTTP requests.
+
+The client does not automatically retry. A lost response may hide a completed
+operation; a duplicate returns a conflict, not a cached response. A new sequence
+or instance ID is a new event, not a safe retry. These fields are client-supplied
+stream identifiers, not authorization or protection against a stolen bearer
+token. Business idempotency and durable outcomes require application handling.
+
+The default `MemoryReplayStore` holds at most 10000 streams per Dispatcher until
+their signed absolute session deadlines. It is process-local and loses records
+on restart. Legacy calls without a session identity have no replay guarantee;
+generic API endpoints outside Dispatcher are also outside this guard.
+
+Supply a shared, durable adapter through `Dispatcher(appRoot, { replayStore:
+store })` for multiple server processes. The `./replay` entry exports
+`MemoryReplayStore(maxForms)` to share an in-process store or change capacity.
+
+| Method | Required contract |
+| --- | --- |
+| `claim(key, seqno, expiresAt)` | Atomically reserve a higher sequence when idle, returning `Accepted`, `AlreadyConsumed`, `InProgress`, `Capacity`, or `Expired`, directly or through a Promise. The key is an opaque JSON tuple; expiry is Unix seconds. |
+| `complete(key, seqno)` | Atomically clear only the matching running reservation while retaining its consumed sequence until expiry. May return a Promise; expired records may already be absent. |
+
+All dispatchers serving the same sessions must share the store and namespace.
+Claims must be committed before returning `Accepted`; rejected claims must not
+advance the sequence. Errors and unknown outcomes fail closed. Never evict a
+live record to free capacity. Crash recovery must not blindly release and
+re-execute a reservation: external effects may already have happened.
+
 Use `definition()` to serialize a control tree without server indexes or
 property aliases. Containers may be unnamed. `Button` accepts either a name
 or `{ name, text, event }`. `value`, `then`, and prototype-related control names
 are reserved in event value trees.
 
 The current milestone covers server event dispatch and response construction.
-The browser renderer, initial GET shell, and template routing are pending.
+The browser renderer is provided by `lango-client`; the initial GET shell and
+template routing are pending.
 
 ## Client protocol core
 

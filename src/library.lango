@@ -2,6 +2,9 @@ import js "node:fs" as fs
 import js "node:module" as nodeModule
 import js "node:path" as path
 import js "node:util" as util
+import js global Promise
+import "./replay"
+    class MemoryReplayStore
 import "./event_form"
     createForm(values, changes, commands)
     validateNames(values)
@@ -11,10 +14,22 @@ export class Dispatcher
         event(options)
         routesFromXml(file)
         handle(input)
+        dispatch(route, input)
+        protectedEvent(route, input, identity)
+        reservedEvent(route, input, key, outcome)
+        completeEvent(key, seqno)
+        reserveEvent(key, seqno, expiresAt)
 
-Dispatcher(appRoot)
+Dispatcher(appRoot, options = null)
     @appRoot = appRoot
     @routes = []
+    @replay = null
+    if options != null
+        @replay = options.replayStore
+    if @replay == null
+        @replay = new MemoryReplayStore()
+    if !is_kindof(@replay.claim, Function) or !is_kindof(@replay.complete, Function)
+        throw "UiReplayStoreRequired"
 
 Dispatcher:event(options)
     if !is_string(options.path) or options.path[0] != "/"
@@ -47,34 +62,153 @@ Dispatcher:handle(input)
     context response
     context token
     context log
-    if not is_object(input.values)
-        throw "UiRequestRequiresValues"
-    if !is_string(input.formId) or input.formId == ""
-        throw "UiRequestRequiresFormId"
-    if !is_number(input.seqno) or input.seqno < 0 or input.seqno % 1 != 0
-        throw "UiRequestRequiresSequenceNumber"
+    identity = eventIdentity()
+    error = eventInputError(input)
+    if error != null
+        if identity != null
+            return eventFailure(400, "UiInvalidRequest", error)
+        throw error
     routes = @routes
     for routes as route
         if route.path == request.path
-            if is_string(route.function)
-                resolver = nodeModule/createRequire(path.join(@appRoot, "package.json"))
-                moduleFile = resolver.resolve(route.module)
-                return import_module(moduleFile).then((module)
-                    capture route
-                    capture input
-                    capture request
-                    capture response
-                    capture token
-                    capture log
-                    routeModule = {
-                        handler: module[route.function]
-                    }
-                    return invokeEvent(routeModule, input)
-                )
-            return invokeEvent({
-                handler: route.function
-            }, input)
+            if identity != null
+                return this.protectedEvent(route, input, identity)
+            return this.dispatch(route, input)
     throw "UiEventNotFound"
+
+eventInputError(input)
+    if !is_object(input)
+        return "UiRequestMustBeMap"
+    if !is_object(input.values)
+        return "UiRequestRequiresValues"
+    if !is_string(input.formId) or input.formId == ""
+        return "UiRequestRequiresFormId"
+    if !is_number(input.seqno) or input.seqno < 1 or input.seqno > 9007199254740991 or input.seqno % 1 != 0
+        return "UiRequestRequiresSequenceNumber"
+    return null
+
+eventIdentity()
+    context token
+    claims = null
+    try
+        claims = token
+    catch error
+        return null
+    if !is_object(claims) or claims.sessionId == null
+        return null
+    if !is_string(claims.sessionId) or claims.sessionId == "" or !is_number(claims.sessionExpiresAt)
+        throw "UiVerifiedSessionRequired"
+    return {
+        sessionId: claims.sessionId
+        expiresAt: claims.sessionExpiresAt
+    }
+
+Dispatcher:protectedEvent(route, input, identity)
+    context request
+    context response
+    context token
+    context log
+    instance = input.formInstanceId
+    if !is_string(instance) or instance == "" or instance.length > 128
+        return eventFailure(400, "UiFormInstanceRequired", null)
+    key = to_json([identity.sessionId, input.formId, instance])
+    dispatcher = this
+    ready = Promise/resolve()
+    return ready.then(()
+        capture dispatcher
+        capture key
+        capture input
+        capture identity
+        return dispatcher.reserveEvent(key, input.seqno, identity.expiresAt)
+    ).then((outcome)
+        capture dispatcher
+        capture route
+        capture input
+        capture key
+        capture request
+        capture response
+        capture token
+        capture log
+        return dispatcher.reservedEvent(route, input, key, outcome)
+    )
+
+Dispatcher:reserveEvent(key, seqno, expiresAt)
+    return @replay.claim(key, seqno, expiresAt)
+
+Dispatcher:reservedEvent(route, input, key, outcome)
+    context request
+    context response
+    context token
+    context log
+    switch outcome
+      case "Accepted"
+          dispatcher = this
+          seqno = input.seqno
+          ready = Promise/resolve()
+          return ready.then(()
+              capture dispatcher
+              capture route
+              capture input
+              capture request
+              capture response
+              capture token
+              capture log
+              return dispatcher.dispatch(route, input)
+          ).finally(()
+              capture dispatcher
+              capture key
+              capture seqno
+              return dispatcher.completeEvent(key, seqno)
+          )
+      case "AlreadyConsumed"
+      case "InProgress"
+          return eventFailure(409, "UiReplayConflict", outcome)
+      case "Capacity"
+          return eventFailure(503, "UiReplayUnavailable", outcome)
+      case "Expired"
+          return eventFailure(401, "Unauthorized", null)
+      else
+          throw "UiInvalidReplayStoreResult"
+
+Dispatcher:completeEvent(key, seqno)
+    return @replay.complete(key, seqno)
+
+eventFailure(status, error, reason)
+    context request
+    context response
+    response.discardTokenChanges()
+    response.header("Cache-Control", "no-store")
+    if status == 401
+        response.header("WWW-Authenticate", "Bearer")
+    return response.status(status).send({
+        error: error
+        reason: reason
+        requestId: request.id
+    })
+
+Dispatcher:dispatch(route, input)
+    context request
+    context response
+    context token
+    context log
+    if is_string(route.function)
+        resolver = nodeModule/createRequire(path.join(@appRoot, "package.json"))
+        moduleFile = resolver.resolve(route.module)
+        return import_module(moduleFile).then((module)
+            capture route
+            capture input
+            capture request
+            capture response
+            capture token
+            capture log
+            routeModule = {
+                handler: module[route.function]
+            }
+            return invokeEvent(routeModule, input)
+        )
+    return invokeEvent({
+        handler: route.function
+    }, input)
 
 invokeEvent(route, input)
     changes = {
