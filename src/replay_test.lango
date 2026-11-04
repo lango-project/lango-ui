@@ -299,8 +299,14 @@ checkMutation()
     )
 
 checkCapacity()
-    store = new MemoryReplayStore(1)
+    special = new MemoryReplayStore(4)
     expiry = Date/now() / 1000 + 3600
+    for ["__proto__", "constructor", "prototype", "toString"] as key
+        assert special.claim(key, 1, expiry) == "Accepted"
+        special.complete(key, 1)
+        assert special.claim(key, 1, expiry) == "AlreadyConsumed"
+    assert special.claim("extra", 1, expiry) == "Capacity"
+    store = new MemoryReplayStore(1)
     assert store.claim("first", 1, expiry) == "Accepted"
     store.complete("first", 1)
     assert store.claim("second", 1, expiry) == "Capacity"

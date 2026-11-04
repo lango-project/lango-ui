@@ -1,5 +1,4 @@
-import js global Map
-import js global Array
+import js global Reflect
 import js global Date
 
 export class MemoryReplayStore
@@ -11,38 +10,44 @@ MemoryReplayStore(maxForms = 10000)
     if !is_number(maxForms) or maxForms < 1 or maxForms % 1 != 0
         throw "UiReplayCapacityMustBePositive"
     @maxForms = maxForms
-    @forms = new Map()
+    @forms = {
+    }
+    @size = 0
 
 MemoryReplayStore:claim(key, seqno, expiresAt)
     now = Date/now() / 1000
     if !is_number(expiresAt) or expiresAt <= now
         return "Expired"
-    previous = @forms.get(key)
+    key = "form:${key}"
+    previous = @forms[key]
     if previous != null and previous.expiresAt <= now
-        @forms.delete(key)
+        Reflect/deleteProperty(@forms, key)
+        @size = @size - 1
         previous = null
     if previous != null
         if seqno <= previous.seqno
             return "AlreadyConsumed"
         if previous.pending
             return "InProgress"
-    if previous == null and @forms.size >= @maxForms
-        entries = Array/from(@forms.entries())
-        for entries as entry
-            record = entry[1]
+    if previous == null and @size >= @maxForms
+        for @forms as name: record
             if record.expiresAt <= now
-                @forms.delete(entry[0])
-        if @forms.size >= @maxForms
+                Reflect/deleteProperty(@forms, name)
+                @size = @size - 1
+        if @size >= @maxForms
             return "Capacity"
-    @forms.set(key, {
+    if previous == null
+        @size++
+    @forms[key] = {
         seqno: seqno
         expiresAt: expiresAt
         pending: true
-    })
+    }
     return "Accepted"
 
 MemoryReplayStore:complete(key, seqno)
-    record = @forms.get(key)
+    key = "form:${key}"
+    record = @forms[key]
     if record == null
         return null
     if record.seqno != seqno
