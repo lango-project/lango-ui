@@ -24,7 +24,7 @@
   ],
   "scripts": {
     "build": "lango build src/library.lango --out dist/library.mjs",
-    "test": "lango test src/library.lango && lango run src/replay_test.lango"
+    "test": "lango test src/library.lango && lango run src/replay_test.lango && lango run src/sync_test.lango"
   },
   "devDependencies": {
     "@lango-project/lango-js": "^0.1.8"

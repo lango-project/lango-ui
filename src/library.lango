@@ -17,13 +17,16 @@ export class Dispatcher
         dispatch(route, input)
         protectedEvent(route, input, identity)
         reservedEvent(route, input, key, outcome, store)
+        protectedEventSync(route, input, identity)
 
 Dispatcher(appRoot, options = null)
     @appRoot = appRoot
     @routes = []
     @replay = null
+    @synchronous = false
     if options != null
         @replay = options.replayStore
+        @synchronous = options.synchronous == true
     @customReplay = @replay != null
     if @replay == null
         @replay = new MemoryReplayStore()
@@ -35,6 +38,9 @@ Dispatcher:event(options)
         throw "UiEventRequiresAbsolutePath"
     if options.function == null
         throw "UiEventRequiresFunction"
+    if @synchronous and is_string(options.function)
+        if options.module == null or is_string(options.module)
+            throw "UiSynchronousModuleMustBePreloaded"
     routes = @routes
     for routes as route
         if route.path == options.path
@@ -71,6 +77,8 @@ Dispatcher:handle(input)
     for routes as route
         if route.path == request.path
             if identity != null
+                if @synchronous
+                    return protectedEventSync(route, input, identity)
                 return protectedEvent(route, input, identity)
             return dispatch(route, input)
     throw "UiEventNotFound"
@@ -203,6 +211,18 @@ Dispatcher:dispatch(route, input)
     context token
     context log
     context state = requestState()
+    if @synchronous
+        handler = route.function
+        if is_string(handler)
+            if route.module == null or is_string(route.module)
+                throw "UiSynchronousModuleMustBePreloaded"
+            mod = route.module
+            handler = mod[handler]
+        if !is_kindof(handler, Function)
+            throw "UiEventRequiresFunction"
+        return invokeEvent({
+            handler: handler
+        }, input, true)
     if is_string(route.function)
         resolver = nodeModule/createRequire(path.join(@appRoot, "package.json"))
         moduleFile = resolver.resolve(route.module)
@@ -223,12 +243,14 @@ Dispatcher:dispatch(route, input)
         handler: route.function
     }, input)
 
-invokeEvent(route, input)
+invokeEvent(route, input, synchronous = false)
     changes = {
     }
     commands = []
     context form = createForm(input.values, changes, commands)
     result = route.handler(input)
+    if synchronous
+        return eventResult(input, changes, commands, synchronousValue(result))
     if util/types/isPromise(result)
         return result.then((values)
             capture input
@@ -238,6 +260,36 @@ invokeEvent(route, input)
             return eventResult(input, changes, commands, values)
         )
     return eventResult(input, changes, commands, result)
+
+synchronousValue(value)
+    if util/types/isPromise(value)
+        value.catch((error)
+            return null
+        )
+        throw "UiSynchronousResultRequired"
+    if value != null
+        if is_kindof(value.then, Function)
+            throw "UiSynchronousResultRequired"
+    return value
+
+Dispatcher:protectedEventSync(route, input, identity)
+    instance = input.formInstanceId
+    if !is_string(instance) or instance == "" or instance.length > 128
+        return eventFailure(400, "UiFormInstanceRequired", null)
+    key = to_json([identity.sessionId, input.formId, instance])
+    store = @replay
+    shared = requestState()
+    context state = shared
+    if !@customReplay and shared != null
+        store = shared
+    outcome = synchronousValue(store.claim(key, input.seqno, identity.expiresAt))
+    if outcome == "Accepted"
+        seqno = input.seqno
+        try
+            return dispatch(route, input)
+        finally
+            synchronousValue(store.complete(key, seqno))
+    return reservedEvent(route, input, key, outcome, store)
 
 mergeValues(target, source)
     for source as name: value

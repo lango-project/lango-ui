@@ -1,0 +1,114 @@
+import js global Date
+import js global Promise
+import "./library"
+    class Dispatcher
+import "./replay"
+    class MemoryReplayStore
+
+export main(args)
+
+class Reply
+    properties
+        code
+    methods
+        status(code)
+        header(name, value)
+        send(value)
+        discardTokenChanges()
+
+Reply()
+    @code = 200
+
+Reply:status(code)
+    @code = code
+    return @this
+
+Reply:header(name, value)
+    return @this
+
+Reply:send(value)
+    return value
+
+Reply:discardTokenChanges()
+    return null
+
+save(input)
+    context form
+    form.email.value = "Saved: ${form.email.value}"
+    form.saveButton.enabled = false
+    return null
+
+asynchronous(input)
+    return Promise/resolve(null)
+
+requestInput(seqno)
+    return {
+        formId: "profile"
+        formInstanceId: "instance"
+        seqno: seqno
+        values: {
+            email: "hello"
+            saveButton: null
+        }
+    }
+
+main(args)
+    context request = {
+        path: "/save"
+        id: "request"
+    }
+    reply = new Reply()
+    context response = reply
+    context token = {
+        sessionId: "session"
+        sessionExpiresAt: Date/now() / 1000 + 3600
+    }
+    context log
+    context state = new MemoryReplayStore()
+    dispatcher = new Dispatcher(".", {
+        synchronous: true
+    })
+    rejectedModule = false
+    try
+        dispatcher.event({
+            path: "/unloaded"
+            module: "./unloaded"
+            function: "save"
+        })
+    catch error
+        assert error == "UiSynchronousModuleMustBePreloaded"
+        rejectedModule = true
+    assert rejectedModule
+    dispatcher.event({
+        path: "/save"
+        module: {
+            save: save
+        }
+        function: "save"
+    })
+    result = dispatcher.handle(requestInput(1))
+    assert result.vals.email == "Saved: hello"
+    assert result.cmds[0].name == "enabled"
+    assert reply.code == 200
+    duplicate = dispatcher.handle(requestInput(1))
+    assert duplicate.error == "UiReplayConflict"
+    assert reply.code == 409
+    bad = new Dispatcher(".", {
+        synchronous: true
+    })
+    bad.event({
+        path: "/save"
+        function: asynchronous
+    })
+    failed = false
+    try
+        bad.handle(requestInput(2))
+    catch error
+        assert error == "UiSynchronousResultRequired"
+        failed = true
+    assert failed
+    duplicate = dispatcher.handle(requestInput(2))
+    assert duplicate.reason == "AlreadyConsumed"
+    next = dispatcher.handle(requestInput(3))
+    assert next.vals.email == "Saved: hello"
+    println("PASS synchronous UI dispatch returns plain results, rejects Promise handlers and releases failed replay reservations")

@@ -177,3 +177,18 @@ state command restores its own state, while earlier commands remain committed.
 Custom adapters provide capture/restore hooks; see the client documentation.
 Browser builds use the compiler's
 `--target browser` option; see the client project's demo and build instructions.
+
+## Synchronous dispatch
+
+For a host that executes a single synchronous request per worker, construct
+`Dispatcher(appRoot, { synchronous: true })`. Register direct event functions or
+preloaded module objects; synchronous mode rejects module path strings. `handle`
+then returns a plain UI result, using the same `context form`, values/commands,
+and replay semantics as ordinary dispatch.
+
+The replay store's `claim` and `complete` methods and every event handler must
+return synchronously. A Promise or thenable raises `UiSynchronousResultRequired`.
+An accepted sequence remains consumed on handler failure, and the reservation is
+released in `finally`. Normal dispatch remains the default and still supports
+asynchronous handlers. Worker hosts should provide a shared store through
+`context state`; independent per-worker memory does not coordinate replay.
