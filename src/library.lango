@@ -40,7 +40,7 @@ Dispatcher:event(options)
         if route.path == options.path
             throw "UiDuplicateEventPath: ${options.path}"
     routes[routes.length] = options
-    return this
+    return @this
 
 Dispatcher:routesFromXml(file)
     root = xml2obj(fs.readFileSync(file, "utf8"))
@@ -49,12 +49,12 @@ Dispatcher:routesFromXml(file)
     for root.children() as tag
         if tag.tag() != "event"
             throw "UiConfigRequiresEvent"
-        this.event({
+        event({
             path: tag.path
             module: tag.mod
             function: tag.func
         })
-    return this
+    return @this
 
 Dispatcher:handle(input)
     context request
@@ -71,8 +71,8 @@ Dispatcher:handle(input)
     for routes as route
         if route.path == request.path
             if identity != null
-                return this.protectedEvent(route, input, identity)
-            return this.dispatch(route, input)
+                return protectedEvent(route, input, identity)
+            return dispatch(route, input)
     throw "UiEventNotFound"
 
 eventInputError(input)
@@ -117,7 +117,6 @@ Dispatcher:protectedEvent(route, input, identity)
     if @customReplay != true
         if shared != null
             store = shared
-    dispatcher = this
     ready = Promise/resolve()
     return ready.then(()
         capture store
@@ -126,7 +125,6 @@ Dispatcher:protectedEvent(route, input, identity)
         capture identity
         return store.claim(key, input.seqno, identity.expiresAt)
     ).then((outcome)
-        capture dispatcher
         capture route
         capture input
         capture key
@@ -136,7 +134,7 @@ Dispatcher:protectedEvent(route, input, identity)
         capture log
         capture store
         capture state
-        return dispatcher.reservedEvent(route, input, key, outcome, store)
+        return reservedEvent(route, input, key, outcome, store)
     )
 
 requestState()
@@ -159,11 +157,9 @@ Dispatcher:reservedEvent(route, input, key, outcome, store)
     context state
     switch outcome
       case "Accepted"
-          dispatcher = this
           seqno = input.seqno
           ready = Promise/resolve()
           return ready.then(()
-              capture dispatcher
               capture route
               capture input
               capture request
@@ -171,7 +167,7 @@ Dispatcher:reservedEvent(route, input, key, outcome, store)
               capture token
               capture log
               capture state
-              return dispatcher.dispatch(route, input)
+              return dispatch(route, input)
           ).finally(()
               capture store
               capture key
@@ -338,7 +334,7 @@ Control(name, type)
 
 Control:setValue(value)
     @value = value
-    return this
+    return @this
 
 Control:getValue()
     return @value
@@ -364,13 +360,13 @@ Container:add(control)
         throw "UiContainerRequiresControl"
     controlsByName = @controlsByName
     if control.name != null and control.name != ""
-        if control.name in this
+        if control.name in @this
             throw "UiDuplicateOrReservedControlName: ${control.name}"
     controls = @controls
     controls[controls.length] = control
     if control.name != null and control.name != ""
         controlsByName[control.name] = control
-        this[control.name] = control
+        @this[control.name] = control
     return control
 
 Container:get(name)
@@ -460,16 +456,16 @@ Response:replace(target, control)
                   current[name] = {
                   }
               current = current[name]
-    return this
+    return @this
 
 Response:remove(target)
     path = patchPath(target)
     for @remove as existing
         existingPath = patchPath(existing)
         if to_json(existingPath) == to_json(path)
-            return this
+            return @this
     @remove.add(target)
-    return this
+    return @this
 
 patchPath(target)
     path = target
@@ -486,18 +482,18 @@ Response:value(name, value)
     if !is_string(name) or name == ""
         throw "UiValueRequiresName"
     @vals[name] = value
-    return this
+    return @this
 
 Response:command(command)
     if !is_object(command) or !is_string(command.type) or command.type == ""
         throw "UiCommandRequiresType"
     @cmds.add(command)
-    return this
+    return @this
 
 Response:setEnabled(target, value)
     if not is_bool(value)
         throw "UiSetEnabledRequiresBoolean"
-    return this.command({
+    return command({
         type: "setEnabled"
         target: target
         value: value
@@ -506,14 +502,14 @@ Response:setEnabled(target, value)
 Response:setVisible(target, value)
     if not is_bool(value)
         throw "UiSetVisibleRequiresBoolean"
-    return this.command({
+    return command({
         type: "setVisible"
         target: target
         value: value
     })
 
 Response:setProperty(target, name, value)
-    return this.command({
+    return command({
         type: "setProperty"
         target: target
         name: name
@@ -521,13 +517,13 @@ Response:setProperty(target, name, value)
     })
 
 Response:focus(target)
-    return this.command({
+    return command({
         type: "focus"
         target: target
     })
 
 Response:toast(level, text)
-    return this.command({
+    return command({
         type: "toast"
         level: level
         text: text

@@ -26,11 +26,11 @@ Reply()
 
 Reply:status(code)
     @code = code
-    return this
+    return @this
 
 Reply:header(name, value)
     @headers[name] = value
-    return this
+    return @this
 
 Reply:send(body)
     @body = body
