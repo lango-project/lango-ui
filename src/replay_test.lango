@@ -47,6 +47,7 @@ class Handler
         rejection
         mutate
         pending
+        observedState
     methods
         handle(input)
         mode(mode)
@@ -60,6 +61,7 @@ Handler()
     @pending = Promise/withResolvers()
 
 Handler:handle(input)
+    @observedState = currentState()
     @calls.add(input.seqno)
     if @mutate
         input.seqno = 100
@@ -72,6 +74,13 @@ Handler:handle(input)
     return {
         text: "handled"
     }
+
+currentState()
+    context state
+    try
+        return state
+    catch error
+        return null
 
 Handler:mode(mode)
     @failing = mode == "fail"
@@ -131,6 +140,8 @@ main(args)
         return checkInvalidStore()
     ).then(()
         return checkFullStore()
+    ).then(()
+        return checkContextStore()
     )
 
 checkDuplicates()
@@ -343,6 +354,38 @@ checkFullStore()
         assert reply.body.error == "UiReplayUnavailable"
         assert handler.calls.length == 1
         println("PASS a full replay store returns 503 without evicting protection or executing another handler")
+    )
+
+invokeWithState(dispatcher, store, reply)
+    context state = store
+    return invoke(dispatcher, 1, reply)
+
+checkContextStore()
+    store = new MemoryReplayStore()
+    handler = new Handler()
+    first = createDispatcher(null, handler)
+    second = createDispatcher(null, handler)
+    return invokeWithState(first, store, new Reply()).then((result)
+        capture second
+        capture store
+        capture handler
+        assert handler.observedState == store
+        return invokeWithState(second, store, new Reply())
+    ).then((result)
+        capture handler
+        capture store
+        assert result.reason == "AlreadyConsumed"
+        assert handler.calls.length == 1
+        return checkCustomStore(store, handler)
+    )
+
+checkCustomStore(shared, handler)
+    custom = createDispatcher(new MemoryReplayStore(), handler)
+    return invokeWithState(custom, shared, new Reply()).then((result)
+        capture handler
+        assert result.seqno == 1
+        assert handler.calls.length == 2
+        println("PASS host context state coordinates default dispatchers while explicit replay adapters take precedence")
     )
 
 class BrokenStore

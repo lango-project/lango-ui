@@ -95,10 +95,18 @@ or instance ID is a new event, not a safe retry. These fields are client-supplie
 stream identifiers, not authorization or protection against a stolen bearer
 token. Business idempotency and durable outcomes require application handling.
 
-The default `MemoryReplayStore` holds at most 10000 streams per Dispatcher until
+When no explicit replay adapter is supplied, Dispatcher first checks the
+request's `context state`. A configured API Host provides its shared runtime
+store here, so SQLite state configuration automatically makes UI reservations
+persistent. The same context remains available inside event handlers. An
+explicit `replayStore` takes precedence.
+
+Without a host state store, `MemoryReplayStore` holds at most 10000 streams per Dispatcher until
 their signed absolute session deadlines. It is process-local and loses records
 on restart. Legacy calls without a session identity have no replay guarantee;
 generic API endpoints outside Dispatcher are also outside this guard.
+The API's `SqliteStateStore` is a ready-made persistent adapter for a local
+filesystem shared by processes; see `lango-api` runtime state configuration.
 
 Supply a shared, durable adapter through `Dispatcher(appRoot, { replayStore:
 store })` for multiple server processes. The `./replay` entry exports

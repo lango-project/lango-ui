@@ -16,9 +16,7 @@ export class Dispatcher
         handle(input)
         dispatch(route, input)
         protectedEvent(route, input, identity)
-        reservedEvent(route, input, key, outcome)
-        completeEvent(key, seqno)
-        reserveEvent(key, seqno, expiresAt)
+        reservedEvent(route, input, key, outcome, store)
 
 Dispatcher(appRoot, options = null)
     @appRoot = appRoot
@@ -26,6 +24,7 @@ Dispatcher(appRoot, options = null)
     @replay = null
     if options != null
         @replay = options.replayStore
+    @customReplay = @replay != null
     if @replay == null
         @replay = new MemoryReplayStore()
     if !is_kindof(@replay.claim, Function) or !is_kindof(@replay.complete, Function)
@@ -112,14 +111,20 @@ Dispatcher:protectedEvent(route, input, identity)
     if !is_string(instance) or instance == "" or instance.length > 128
         return eventFailure(400, "UiFormInstanceRequired", null)
     key = to_json([identity.sessionId, input.formId, instance])
+    store = @replay
+    shared = requestState()
+    context state = shared
+    if @customReplay != true
+        if shared != null
+            store = shared
     dispatcher = this
     ready = Promise/resolve()
     return ready.then(()
-        capture dispatcher
+        capture store
         capture key
         capture input
         capture identity
-        return dispatcher.reserveEvent(key, input.seqno, identity.expiresAt)
+        return store.claim(key, input.seqno, identity.expiresAt)
     ).then((outcome)
         capture dispatcher
         capture route
@@ -129,17 +134,29 @@ Dispatcher:protectedEvent(route, input, identity)
         capture response
         capture token
         capture log
-        return dispatcher.reservedEvent(route, input, key, outcome)
+        capture store
+        capture state
+        return dispatcher.reservedEvent(route, input, key, outcome, store)
     )
 
-Dispatcher:reserveEvent(key, seqno, expiresAt)
-    return @replay.claim(key, seqno, expiresAt)
+requestState()
+    context state
+    store = null
+    try
+        store = state
+    catch error
+        return null
+    if store != null
+        if !is_kindof(store.claim, Function) or !is_kindof(store.complete, Function)
+            throw "UiReplayStoreRequired"
+    return store
 
-Dispatcher:reservedEvent(route, input, key, outcome)
+Dispatcher:reservedEvent(route, input, key, outcome, store)
     context request
     context response
     context token
     context log
+    context state
     switch outcome
       case "Accepted"
           dispatcher = this
@@ -153,12 +170,13 @@ Dispatcher:reservedEvent(route, input, key, outcome)
               capture response
               capture token
               capture log
+              capture state
               return dispatcher.dispatch(route, input)
           ).finally(()
-              capture dispatcher
+              capture store
               capture key
               capture seqno
-              return dispatcher.completeEvent(key, seqno)
+              return store.complete(key, seqno)
           )
       case "AlreadyConsumed"
       case "InProgress"
@@ -169,9 +187,6 @@ Dispatcher:reservedEvent(route, input, key, outcome)
           return eventFailure(401, "Unauthorized", null)
       else
           throw "UiInvalidReplayStoreResult"
-
-Dispatcher:completeEvent(key, seqno)
-    return @replay.complete(key, seqno)
 
 eventFailure(status, error, reason)
     context request
@@ -191,6 +206,7 @@ Dispatcher:dispatch(route, input)
     context response
     context token
     context log
+    context state = requestState()
     if is_string(route.function)
         resolver = nodeModule/createRequire(path.join(@appRoot, "package.json"))
         moduleFile = resolver.resolve(route.module)
@@ -201,6 +217,7 @@ Dispatcher:dispatch(route, input)
             capture response
             capture token
             capture log
+            capture state
             routeModule = {
                 handler: module[route.function]
             }
