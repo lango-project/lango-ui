@@ -366,6 +366,7 @@ export class Button : Control
         text
         event
         validate
+        confirmDirty
     methods
         definition()
 
@@ -547,22 +548,28 @@ buttonName(options)
 Button(options)
     super(buttonName(options), "Button")
     @validate = false
+    @confirmDirty = false
     if is_object(options)
         configureValidation(@this, options)
         @text = options.text
         @event = options.event
         if options.validate != null
             @validate = options.validate
+        if options.confirmDirty != null
+            @confirmDirty = options.confirmDirty
         if options.events != null
             @events = options.events
 
 Button:definition()
     if !is_bool(@validate)
         throw "UiValidateEventMustBeBoolean"
+    if !is_bool(@confirmDirty)
+        throw "UiConfirmDirtyMustBeBoolean"
     result = super.definition()
     result.text = @text
     result.event = @event
     result.validate = @validate
+    result.confirmDirty = @confirmDirty
     return result
 
 Response:markClean(target, value)
@@ -1109,6 +1116,7 @@ test "validation metadata, save acknowledgements and field errors stay outside v
     save = form.add(new Button({
         name: "save"
         validate: true
+        confirmDirty: true
     }))
     checkbox = new Checkbox({
         name: "agreed"
@@ -1124,6 +1132,7 @@ test "validation metadata, save acknowledgements and field errors stay outside v
     assert definition.controls[0].validation.required == true
     assert definition.controls[0].trackChanges == true
     assert definition.controls[1].validate == true
+    assert definition.controls[1].confirmDirty == true
     response = new Response("profile", 1)
     response.markClean("email", "saved@example.com")
     response.fieldError("email", "Unavailable")

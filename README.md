@@ -440,3 +440,10 @@ inherited aliases accept only these two metadata commands in addition to value
 writes; other state commands and structural patches remain forbidden. Read-only
 aliases accept no state commands. Validation/dirty metadata does not enter
 request `values` or change JWT/replay semantics.
+
+A Button with `confirmDirty: true` asks before its event discards unsaved form
+edits. The client handles this before queueing; canceling sends no HTTP and
+consumes no seqno. Use it for actions such as New/Open in the contact-book example
+under `lango-client/examples`. It is separate from `validate: true`: loading a
+different record may discard an incomplete form after confirmation. The server
+still validates all reads/writes and record versions.
