@@ -7,6 +7,8 @@ import js global URL
 import "./input_values"
     selectItems(options)
     selectIndex(items, value)
+import "./validation"
+    rulesFor(value)
 import "./replay"
     class MemoryReplayStore
 import "./event_form"
@@ -325,6 +327,8 @@ export class Response
         focus(target)
         toast(level, text)
         result()
+        markClean(target, value)
+        fieldError(target, message)
 
 export class Control
     properties
@@ -336,6 +340,8 @@ export class Control
         events
         classes
         style
+        validation
+        trackChanges
     methods
         setValue(value)
         getValue()
@@ -359,6 +365,7 @@ export class Button : Control
     properties
         text
         event
+        validate
     methods
         definition()
 
@@ -381,6 +388,7 @@ export class Checkbox : Control
 
 Select(options)
     super(inputName(options, "Select"), "Select")
+    configureValidation(@this, options)
     @options = selectItems(options.options)
     selectIndex(@options, options.value)
     @value = options.value
@@ -400,6 +408,7 @@ Select:definition()
 
 Checkbox(options)
     super(inputName(options, "Checkbox"), "Checkbox")
+    configureValidation(@this, options)
     value = options.value
     if value == null
         value = false
@@ -424,6 +433,17 @@ inputName(options, type)
         throw "Ui${type}RequiresMap"
     return options.name
 
+configureValidation(control, options)
+    if options.validation != null
+        control.validation = rulesFor(options.validation)
+    if options.trackChanges != null
+        control.trackChanges = trackingValue(options.trackChanges)
+
+trackingValue(value)
+    if value != null and !is_bool(value)
+        throw "UiTrackChangesMustBeBoolean"
+    return value
+
 Value(name, value)
     super(name, "Value")
     @value = value
@@ -441,6 +461,8 @@ Control(name, type)
     @classes = []
     @style = {
     }
+    @validation = null
+    @trackChanges = null
 
 Control:setValue(value)
     @value = value
@@ -459,6 +481,8 @@ Control:definition()
         events: @events
         classes: @classes
         style: @style
+        validation: rulesFor(@validation)
+        trackChanges: trackingValue(@trackChanges)
     }
 
 Container(name = null, type = "Container")
@@ -498,6 +522,8 @@ Container:definition()
         events: @events
         classes: @classes
         style: @style
+        validation: rulesFor(@validation)
+        trackChanges: trackingValue(@trackChanges)
     }
 
 Form(formId)
@@ -520,17 +546,32 @@ buttonName(options)
 
 Button(options)
     super(buttonName(options), "Button")
+    @validate = false
     if is_object(options)
+        configureValidation(@this, options)
         @text = options.text
         @event = options.event
+        if options.validate != null
+            @validate = options.validate
         if options.events != null
             @events = options.events
 
 Button:definition()
+    if !is_bool(@validate)
+        throw "UiValidateEventMustBeBoolean"
     result = super.definition()
     result.text = @text
     result.event = @event
+    result.validate = @validate
     return result
+
+Response:markClean(target, value)
+    return setProperty(target, "savedValue", value)
+
+Response:fieldError(target, message)
+    if message != null and !is_string(message)
+        throw "UiFieldErrorMustBeStringOrNull"
+    return setProperty(target, "error", message)
 
 Response(formId, seqno)
     if !is_string(formId) or formId == ""
@@ -1053,5 +1094,52 @@ test "Select and Checkbox builders preserve typed values, options and accessible
         form.definition()
     catch error
         assert error == "UiCheckboxValueMustBeBoolean"
+        failed = true
+    assert failed
+
+test "validation metadata, save acknowledgements and field errors stay outside values"
+    form = new Form("profile")
+    field = form.add(new Control("email", "Text"))
+    field.validation = {
+        required: true
+        maxLength: 254
+        pattern: "[^ @]+@[^ @]+[.][^ @]+"
+    }
+    field.trackChanges = true
+    save = form.add(new Button({
+        name: "save"
+        validate: true
+    }))
+    checkbox = new Checkbox({
+        name: "agreed"
+        validation: {
+            required: true
+        }
+        trackChanges: false
+    })
+    checkedDefinition = checkbox.definition()
+    assert checkedDefinition.validation.required == true
+    assert checkedDefinition.trackChanges == false
+    definition = form.definition()
+    assert definition.controls[0].validation.required == true
+    assert definition.controls[0].trackChanges == true
+    assert definition.controls[1].validate == true
+    response = new Response("profile", 1)
+    response.markClean("email", "saved@example.com")
+    response.fieldError("email", "Unavailable")
+    result = response.result()
+    assert result.cmds[0].name == "savedValue"
+    assert result.cmds[0].value == "saved@example.com"
+    assert result.cmds[1].name == "error"
+    assert result.cmds[1].value == "Unavailable"
+    assert !("email" in result.vals)
+    field.validation = {
+        typo: true
+    }
+    failed = false
+    try
+        field.definition()
+    catch error
+        assert error == "UiUnknownValidationRule: typo"
         failed = true
     assert failed

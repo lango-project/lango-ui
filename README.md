@@ -53,7 +53,8 @@ String/path-array entries are read-only; `writable: true` permits response
 `form.customerId.value` or assign `form.city.value`. The client rejects a write
 to a read-only alias before applying changes; the event proxy itself receives
 ordinary client values and is not an authorization boundary. Aliases cannot
-be command or structural targets. The browser coordinates overlapping managed
+be structural targets; writable aliases accept only saved-value acknowledgements
+and field-error commands. The browser coordinates overlapping managed
 requests; form tokens and later claim changes are independent.
 
 ## Event dispatch
@@ -393,3 +394,49 @@ inheritance and response contracts. The UI builder's option list is not a server
 validation registry: handlers must validate the incoming client data separately.
 Change an option list with a structural replacement. This first version supports
 single selection and a two-state checkbox.
+
+## Validation and save acknowledgement
+
+Control builders carry `validation` and optional `trackChanges` metadata. A
+Button can opt into client form validation with `validate: true`:
+
+```lango
+email.validation = {
+    required: true
+    maxLength: 254
+    pattern: "[^ @]+@[^ @]+[.][^ @]+"
+    message: "Enter a valid email address."
+}
+save = form.add(new ui/Button({
+    name: "save"
+    text: "Save"
+    validate: true
+}))
+```
+
+The initial rule set supports required, min/max string lengths and a full-value
+RegExp pattern; optional empty fields skip length/pattern checks. Builder
+`definition()` validates rule metadata. These are browser checks; request
+handlers remain responsible for server validation and permissions.
+
+A successful save must explicitly acknowledge the accepted value. Using
+`context form`:
+
+```lango
+form.email.savedValue = canonicalEmail
+form.country.savedValue = form.country.value
+form.subscribed.savedValue = form.subscribed.value
+```
+
+These assignments emit state commands, not values. Return canonical `vals`
+when changing a displayed value, and acknowledge that same value. The client
+compares live data with the accepted baseline, retaining dirty state for newer
+unacknowledged edits. Ordinary event responses do not imply persistence.
+
+`form.email.error = "This email is unavailable."` sends a field error without
+acknowledging a save; null clears it. The Response builder exposes the equivalent
+`markClean(target, value)` and `fieldError(target, message)` helpers. Writable
+inherited aliases accept only these two metadata commands in addition to value
+writes; other state commands and structural patches remain forbidden. Read-only
+aliases accept no state commands. Validation/dirty metadata does not enter
+request `values` or change JWT/replay semantics.

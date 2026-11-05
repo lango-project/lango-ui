@@ -1,0 +1,37 @@
+import js global RegExp
+
+export rulesFor(value)
+
+rulesFor(value)
+    if value == null
+        return {
+        }
+    if !is_object(value) or is_array(value)
+        throw "UiValidationRequiresMap"
+    rules = {
+    }
+    for value as name: item
+        switch name
+          case "required"
+              if !is_bool(item)
+                  throw "UiValidationRequiredMustBeBoolean"
+          case "minLength"
+              if !is_number(item) or item < 0 or item % 1 != 0
+                  throw "UiValidationLengthMustBeNonnegativeInteger"
+          case "maxLength"
+              if !is_number(item) or item < 0 or item % 1 != 0
+                  throw "UiValidationLengthMustBeNonnegativeInteger"
+          case "pattern"
+              if !is_string(item)
+                  throw "UiValidationPatternMustBeString"
+              expression = new RegExp("^(?:${item})$")
+          case "message"
+              if !is_string(item) or item == ""
+                  throw "UiValidationMessageMustBeString"
+          else
+              throw "UiUnknownValidationRule: ${name}"
+        rules[name] = item
+    if rules.minLength != null and rules.maxLength != null and rules.minLength > rules.maxLength
+        throw "UiValidationLengthRangeInvalid"
+    return rules
+
