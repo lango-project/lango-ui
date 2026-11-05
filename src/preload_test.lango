@@ -1,0 +1,190 @@
+import js global Promise
+import js "node:fs" as fs
+import js "node:os" as os
+import js "node:path" as path
+import "./library"
+    class Dispatcher
+
+export main(args)
+
+invoke(dispatcher, endpoint)
+    context request = {
+        path: endpoint
+    }
+    context token = {
+        auth: false
+    }
+    context response = null
+    context log
+    return dispatcher.handle({
+        formId: "profile"
+        seqno: 1
+        values: {
+            city: "Ankara"
+            saveButton: null
+        }
+    })
+
+rejectedDispatch(dispatcher)
+    failed = false
+    try
+        invoke(dispatcher, "/first")
+    catch error
+        assert error == "UiDispatcherNotPreloaded"
+        failed = true
+    assert failed
+    return null
+
+locked(dispatcher)
+    failed = false
+    try
+        dispatcher.event({
+            path: "/late"
+            function: direct
+        })
+    catch error
+        assert error == "UiRegistryAlreadyLoadingOrPreloaded"
+        failed = true
+    assert failed
+    return null
+
+direct(input)
+    return {
+        direct: true
+    }
+
+main(args)
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), "lango-ui-preload-"))
+    packageRoot = path.join(directory, "package")
+    appRoot = path.join(directory, "app")
+    link = path.join(appRoot, "node_modules", "@test", "events")
+    fs.mkdirSync(packageRoot)
+    fs.mkdirSync(path.dirname(link), {
+        recursive: true
+    })
+    fs.writeFileSync(path.join(appRoot, "package.json"), "{}")
+    fs.writeFileSync(path.join(packageRoot, "package.json"), to_json({
+        type: "module"
+        exports: "./handler.mjs"
+    }))
+    fs.symlinkSync(path.resolve("dist/test/preload_fixture.mjs"), path.join(packageRoot, "handler.mjs"))
+    fs.symlinkSync(packageRoot, link, "junction")
+    fs.symlinkSync(path.resolve("dist/test/.lango"), path.join(packageRoot, ".lango"), "junction")
+    fs.symlinkSync(path.resolve("dist/test/.lango"), path.join(appRoot, ".lango"), "junction")
+    xml = <ui>
+        <event path="/first" mod="@test/events" func="edit" />
+        <event path="/second" mod="@test/events" func="edit" />
+    </ui>
+    file = path.join(appRoot, "ui.xml")
+    fs.writeFileSync(file, xml)
+    dispatcher = new Dispatcher(appRoot, {
+        synchronous: true
+    })
+    dispatcher.routesFromXml(file)
+    rejectedDispatch(dispatcher)
+    first = dispatcher.preload()
+    assert first == dispatcher.preload()
+    locked(dispatcher)
+    rejectedDispatch(dispatcher)
+    return first.then((ready)
+        capture dispatcher
+        capture fs
+        capture file
+        capture link
+        assert ready == dispatcher
+        locked(dispatcher)
+        fs.unlinkSync(file)
+        fs.unlinkSync(link)
+        result = invoke(dispatcher, "/first")
+        other = invoke(dispatcher, "/second")
+        assert result.vals.city == "Saved: Ankara"
+        assert result.cmds[0].value == false
+        assert result.vals.moduleId == other.vals.moduleId
+        return dispatcher.preload()
+    ).then(()
+        capture appRoot
+        println("PASS UI XML and package modules preload once; frozen synchronous registries work after XML/package removal")
+        normal = normalDispatcher(appRoot)
+        return checkNormal(normal)
+    ).then(()
+        capture appRoot
+        capture packageRoot
+        capture fs
+        capture link
+        fs.symlinkSync(packageRoot, link, "junction")
+        invalid = new Dispatcher(appRoot, {
+            synchronous: true
+        })
+        invalid.event({
+            path: "/first"
+            module: "@test/events"
+            function: "missing"
+        })
+        return checkInvalid(invalid)
+    ).then(()
+        capture appRoot
+        retry = new Dispatcher(appRoot, {
+            synchronous: true
+        })
+        retry.event({
+            path: "/first"
+            module: "./late.mjs"
+            function: "edit"
+        })
+        return missingThenRetry(retry, appRoot)
+    ).finally(()
+        capture fs
+        capture directory
+        fs.rmSync(directory, {
+            recursive: true
+            force: true
+        })
+    )
+
+missingThenRetry(dispatcher, appRoot)
+    return dispatcher.preload().then(()
+        throw "ExpectedMissingModule"
+    ).catch((error)
+        capture dispatcher
+        capture appRoot
+        capture fs
+        capture path
+        message = "${error}"
+        assert message.includes("Cannot find module")
+        rejectedDispatch(dispatcher)
+        fs.symlinkSync(path.resolve("dist/test/preload_fixture.mjs"), path.join(appRoot, "late.mjs"))
+        return dispatcher.preload()
+    ).then(()
+        capture dispatcher
+        result = invoke(dispatcher, "/first")
+        assert result.vals.city == "Saved: Ankara"
+        println("PASS preload validates exports and module objects before dispatch, rejects unprepared registries and permits retry after failure")
+    )
+
+checkNormal(dispatcher)
+    return dispatcher.preload().then(()
+        capture dispatcher
+        result = invoke(dispatcher, "/normal")
+        assert result.vals.direct
+    )
+
+checkInvalid(dispatcher)
+    return dispatcher.preload().then(()
+        throw "ExpectedPreloadFailure"
+    ).catch((error)
+        capture dispatcher
+        message = "${error}"
+        assert message.includes("UiHandlerNotExported")
+        rejectedDispatch(dispatcher)
+    )
+
+normalDispatcher(appRoot)
+    dispatcher = new Dispatcher(appRoot)
+    dispatcher.event({
+        path: "/normal"
+        module: {
+            save: direct
+        }
+        function: "save"
+    })
+    return dispatcher

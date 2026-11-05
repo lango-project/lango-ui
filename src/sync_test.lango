@@ -68,15 +68,19 @@ main(args)
     dispatcher = new Dispatcher(".", {
         synchronous: true
     })
+    unloaded = new Dispatcher(".", {
+        synchronous: true
+    })
+    unloaded.event({
+        path: "/unloaded"
+        module: "./unloaded"
+        function: "save"
+    })
     rejectedModule = false
     try
-        dispatcher.event({
-            path: "/unloaded"
-            module: "./unloaded"
-            function: "save"
-        })
+        unloaded.handle(requestInput(1))
     catch error
-        assert error == "UiSynchronousModuleMustBePreloaded"
+        assert error == "UiDispatcherNotPreloaded"
         rejectedModule = true
     assert rejectedModule
     dispatcher.event({

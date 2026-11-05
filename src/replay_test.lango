@@ -1,6 +1,5 @@
 import js global Promise
 import js global Date
-import js global globalThis as host
 import "./library"
     class Dispatcher
 import "./replay"
@@ -46,7 +45,6 @@ class Handler
         failing
         rejection
         mutate
-        pending
         observedState
     methods
         handle(input)
@@ -58,7 +56,6 @@ Handler()
     @failing = false
     @rejection = false
     @mutate = false
-    @pending = Promise/withResolvers()
 
 Handler:handle(input)
     @observedState = currentState()
@@ -70,7 +67,7 @@ Handler:handle(input)
     if @rejection
         return Promise/reject("ExpectedHandlerFailure")
     if @blocking
-        return @pending.promise
+        return Promise/resolve(null)
     return {
         text: "handled"
     }
@@ -128,175 +125,97 @@ invoke(dispatcher, seqno, reply, instance = "instance", session = "session", for
 main(args)
     checkCapacity()
     checkInvalidInput()
-    return checkDuplicates().then(()
-        return checkFailures()
-    ).then(()
-        return checkPending()
-    ).then(()
-        return checkScopes()
-    ).then(()
-        return checkMutation()
-    ).then(()
-        return checkInvalidStore()
-    ).then(()
-        return checkFullStore()
-    ).then(()
-        return checkContextStore()
-    )
+    checkDuplicates()
+    checkFailures()
+    checkPending()
+    checkScopes()
+    checkMutation()
+    checkInvalidStore()
+    checkFullStore()
+    checkContextStore()
 
 checkDuplicates()
     handler = new Handler()
     dispatcher = createDispatcher(new MemoryReplayStore(), handler)
-    return invoke(dispatcher, 1, new Reply()).then((result)
-        capture dispatcher
-        capture handler
-        assert handler.calls.length == 1
-        return checkDuplicate(dispatcher, handler)
-    )
-
-checkDuplicate(dispatcher, handler)
+    invoke(dispatcher, 1, new Reply())
     reply = new Reply()
-    return invoke(dispatcher, 1, reply).then((result)
-        capture dispatcher
-        capture handler
-        capture reply
-        assertConflict(reply, "AlreadyConsumed")
-        assert handler.calls.length == 1
-        return invoke(dispatcher, 3, new Reply())
-    ).then((result)
-        capture dispatcher
-        capture handler
-        assert result.seqno == 3
-        return checkStale(dispatcher, handler)
-    )
-
-checkStale(dispatcher, handler)
-    reply = new Reply()
-    return invoke(dispatcher, 2, reply).then((result)
-        capture dispatcher
-        capture handler
-        capture reply
-        assertConflict(reply, "AlreadyConsumed")
-        assert handler.calls.length == 2
-        return checkOtherPath(dispatcher, handler)
-    )
-
-checkOtherPath(dispatcher, handler)
-    reply = new Reply()
-    return invoke(dispatcher, 3, reply, "instance", "session", "profile", "/other").then((result)
-        capture handler
-        capture reply
-        assertConflict(reply, "AlreadyConsumed")
-        assert handler.calls.length == 2
-        println("PASS duplicate and older sequences are rejected across routes; gaps remain allowed")
-    )
+    invoke(dispatcher, 1, reply)
+    assertConflict(reply, "AlreadyConsumed")
+    assert handler.calls.length == 1
+    assert invoke(dispatcher, 3, new Reply()).seqno == 3
+    stale = new Reply()
+    invoke(dispatcher, 2, stale)
+    assertConflict(stale, "AlreadyConsumed")
+    other = new Reply()
+    invoke(dispatcher, 3, other, "instance", "session", "profile", "/other")
+    assertConflict(other, "AlreadyConsumed")
+    assert handler.calls.length == 2
+    println("PASS duplicate and older sequences are rejected across routes; gaps remain allowed")
 
 assertConflict(reply, reason)
     assert reply.code == 409
     assert reply.body.error == "UiReplayConflict"
     assert reply.body.reason == reason
     assert reply.headers["Cache-Control"] == "no-store"
-    return null
 
 checkFailures()
     handler = new Handler()
-    handler.failing = true
     dispatcher = createDispatcher(new MemoryReplayStore(), handler)
-    return expectFailure(invoke(dispatcher, 1, new Reply()), "ExpectedHandlerFailure").then(()
-        capture handler
-        capture dispatcher
-        handler.mode("reject")
-        return expectFailure(invoke(dispatcher, 2, new Reply()), "ExpectedHandlerFailure")
-    ).then(()
-        capture handler
-        capture dispatcher
-        handler.mode("normal")
-        return checkFailureReplay(dispatcher, handler)
-    )
-
-checkFailureReplay(dispatcher, handler)
-    reply = new Reply()
-    return invoke(dispatcher, 2, reply).then((result)
-        capture dispatcher
-        capture handler
-        capture reply
+    for ["fail", "reject", "block"] as index: mode
+        handler.mode(mode)
+        expected = "UiSynchronousResultRequired"
+        if mode == "fail"
+            expected = "ExpectedHandlerFailure"
+        expectFailure(dispatcher, index + 1, expected)
+        reply = new Reply()
+        invoke(dispatcher, index + 1, reply)
         assertConflict(reply, "AlreadyConsumed")
-        assert handler.calls.length == 2
-        return invoke(dispatcher, 3, new Reply())
-    ).then((result)
-        capture handler
-        assert handler.calls.length == 3
-        println("PASS synchronous and asynchronous failures consume their sequence without blocking later events")
-    )
+    handler.mode("normal")
+    invoke(dispatcher, 4, new Reply())
+    assert handler.calls.length == 4
+    println("PASS handler exceptions and forbidden Promise results consume their sequence and release reservations")
 
 checkPending()
+    store = new MemoryReplayStore()
     handler = new Handler()
-    handler.blocking = true
-    dispatcher = createDispatcher(new MemoryReplayStore(), handler)
-    first = invoke(dispatcher, 1, new Reply())
-    reply = new Reply()
-    duplicate = invoke(dispatcher, 1, new Reply())
-    next = invoke(dispatcher, 2, reply)
-    return Promise/all([duplicate, next]).then((results)
-        capture handler
-        capture reply
-        capture first
-        assert handler.calls.length == 1
-        assert results[0].reason == "AlreadyConsumed"
-        assertConflict(reply, "InProgress")
-        handler.pending.resolve({
-            text: "completed"
-        })
-        return first
-    ).then((result)
-        capture dispatcher
-        capture handler
-        handler.mode("normal")
-        return invoke(dispatcher, 2, new Reply())
-    ).then((result)
-        capture handler
-        assert handler.calls.length == 2
-        println("PASS atomic reservation rejects concurrent duplicates and keeps higher sequences retryable until completion")
-    )
+    dispatcher = createDispatcher(store, handler)
+    key = to_json(["session", "profile", "instance"])
+    assert store.claim(key, 1, Date/now() / 1000 + 3600) == "Accepted"
+    duplicate = new Reply()
+    invoke(dispatcher, 1, duplicate)
+    assertConflict(duplicate, "AlreadyConsumed")
+    next = new Reply()
+    invoke(dispatcher, 2, next)
+    assertConflict(next, "InProgress")
+    assert handler.calls.length == 0
+    store.complete(key, 1)
+    invoke(dispatcher, 2, new Reply())
+    assert handler.calls.length == 1
+    println("PASS another request's reservation rejects duplicates and keeps higher sequences retryable until completion")
 
 checkScopes()
     store = new MemoryReplayStore()
     handler = new Handler()
     first = createDispatcher(store, handler)
     second = createDispatcher(store, handler)
-    return invoke(first, 1, new Reply()).then((result)
-        capture second
-        return invoke(second, 1, new Reply())
-    ).then((result)
-        capture second
-        assert result.reason == "AlreadyConsumed"
-        return invoke(second, 1, new Reply(), "replacement")
-    ).then((result)
-        capture first
-        return invoke(first, 1, new Reply(), "instance", "another-session")
-    ).then((result)
-        capture first
-        return invoke(first, 1, new Reply(), "instance", "session", "nested")
-    ).then((result)
-        capture handler
-        assert handler.calls.length == 4
-        println("PASS shared stores coordinate dispatchers while session, form and replacement instances remain independent")
-    )
+    invoke(first, 1, new Reply())
+    result = invoke(second, 1, new Reply())
+    assert result.reason == "AlreadyConsumed"
+    invoke(second, 1, new Reply(), "replacement")
+    invoke(first, 1, new Reply(), "instance", "another-session")
+    invoke(first, 1, new Reply(), "instance", "session", "nested")
+    assert handler.calls.length == 4
+    println("PASS shared stores coordinate dispatchers while session, form and replacement instances remain independent")
 
 checkMutation()
     handler = new Handler()
-    handler.mutate = true
+    handler.mode("mutate")
     dispatcher = createDispatcher(new MemoryReplayStore(), handler)
-    return invoke(dispatcher, 1, new Reply()).then((result)
-        capture handler
-        capture dispatcher
-        handler.mode("normal")
-        return invoke(dispatcher, 2, new Reply())
-    ).then((result)
-        capture handler
-        assert handler.calls.length == 2
-        println("PASS handler input mutation cannot change the reserved sequence released on completion")
-    )
+    invoke(dispatcher, 1, new Reply())
+    handler.mode("normal")
+    invoke(dispatcher, 2, new Reply())
+    assert handler.calls.length == 2
+    println("PASS input mutation cannot change the reserved sequence released on completion")
 
 checkCapacity()
     special = new MemoryReplayStore(4)
@@ -314,7 +233,7 @@ checkCapacity()
     assert store.claim("first", 2, expiry) == "Accepted"
     store.complete("first", 2)
     assert store.claim("expired", 1, 1) == "Expired"
-    original = host.Date.now
+    original = Date.now
     frozen = ()
         capture expiry
         return (expiry + 1) * 1000
@@ -327,7 +246,7 @@ checkCapacity()
     return null
 
 replaceNow(callback)
-    host.Date.now = callback
+    Date.now = callback
 
 checkInvalidInput()
     handler = new Handler()
@@ -348,19 +267,13 @@ checkInvalidInput()
 checkFullStore()
     handler = new Handler()
     dispatcher = createDispatcher(new MemoryReplayStore(1), handler)
+    invoke(dispatcher, 1, new Reply())
     reply = new Reply()
-    return invoke(dispatcher, 1, new Reply()).then((result)
-        capture dispatcher
-        capture reply
-        return invoke(dispatcher, 1, reply, "another-instance")
-    ).then((result)
-        capture handler
-        capture reply
-        assert reply.code == 503
-        assert reply.body.error == "UiReplayUnavailable"
-        assert handler.calls.length == 1
-        println("PASS a full replay store returns 503 without evicting protection or executing another handler")
-    )
+    invoke(dispatcher, 1, reply, "another-instance")
+    assert reply.code == 503
+    assert reply.body.error == "UiReplayUnavailable"
+    assert handler.calls.length == 1
+    println("PASS a full replay store returns 503 without evicting protection or executing handlers")
 
 invokeWithState(dispatcher, store, reply)
     context state = store
@@ -371,28 +284,14 @@ checkContextStore()
     handler = new Handler()
     first = createDispatcher(null, handler)
     second = createDispatcher(null, handler)
-    return invokeWithState(first, store, new Reply()).then((result)
-        capture second
-        capture store
-        capture handler
-        assert handler.observedState == store
-        return invokeWithState(second, store, new Reply())
-    ).then((result)
-        capture handler
-        capture store
-        assert result.reason == "AlreadyConsumed"
-        assert handler.calls.length == 1
-        return checkCustomStore(store, handler)
-    )
-
-checkCustomStore(shared, handler)
+    invokeWithState(first, store, new Reply())
+    assert handler.observedState == store
+    duplicate = invokeWithState(second, store, new Reply())
+    assert duplicate.reason == "AlreadyConsumed"
     custom = createDispatcher(new MemoryReplayStore(), handler)
-    return invokeWithState(custom, shared, new Reply()).then((result)
-        capture handler
-        assert result.seqno == 1
-        assert handler.calls.length == 2
-        println("PASS host context state coordinates default dispatchers while explicit replay adapters take precedence")
-    )
+    invokeWithState(custom, store, new Reply())
+    assert handler.calls.length == 2
+    println("PASS context state coordinates default dispatchers while explicit stores take precedence")
 
 class BrokenStore
     properties
@@ -403,8 +302,8 @@ class BrokenStore
 
 BrokenStore:claim(key, seqno, expiresAt)
     if @result == null
-        return Promise/reject("ExpectedStoreFailure")
-    return Promise/resolve(@result)
+        throw "ExpectedStoreFailure"
+    return @result
 
 BrokenStore:complete(key, seqno)
     return null
@@ -413,24 +312,17 @@ checkInvalidStore()
     handler = new Handler()
     store = new BrokenStore()
     dispatcher = createDispatcher(store, handler)
-    return expectFailure(invoke(dispatcher, 1, new Reply()), "ExpectedStoreFailure").then(()
-        capture store
-        capture dispatcher
-        setStoreResult(store, "unexpected")
-        return expectFailure(invoke(dispatcher, 1, new Reply()), "UiInvalidReplayStoreResult")
-    ).then(()
-        capture handler
-        assert handler.calls.length == 0
-        println("PASS replay store errors and unknown outcomes never run the handler")
-    )
+    expectFailure(dispatcher, 1, "ExpectedStoreFailure")
+    store.result = "unexpected"
+    expectFailure(dispatcher, 1, "UiInvalidReplayStoreResult")
+    assert handler.calls.length == 0
+    println("PASS replay store errors and unknown outcomes never run handlers")
 
-setStoreResult(store, result)
-    store.result = result
-
-expectFailure(pending, expected)
-    return pending.then((result)
-        throw "UnexpectedSuccess"
-    ).catch((error)
-        capture expected
+expectFailure(dispatcher, seqno, expected)
+    failed = false
+    try
+        invoke(dispatcher, seqno, new Reply())
+    catch error
         assert error == expected
-    )
+        failed = true
+    assert failed

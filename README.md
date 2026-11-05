@@ -86,8 +86,8 @@ Value writes and the returned map become `vals` (returned entries win).
 Other property writes emit ordered `setProperty` commands with path-array
 targets, such as `["saveButton"]`. Reading a property that has not been set
 during the current request raises `UiFormPropertyUnavailable`. Persist such
-state explicitly in a hidden `Value` control. Capture `form` in asynchronous
-callbacks that need it. Handler Promise results are supported.
+state explicitly in a hidden `Value` control. Event handlers run synchronously;
+Promise/thenable results are rejected.
 
 ## Event replay protection
 
@@ -136,8 +136,8 @@ store })` for multiple server processes. The `./replay` entry exports
 
 | Method | Required contract |
 | --- | --- |
-| `claim(key, seqno, expiresAt)` | Atomically reserve a higher sequence when idle, returning `Accepted`, `AlreadyConsumed`, `InProgress`, `Capacity`, or `Expired`, directly or through a Promise. The key is an opaque JSON tuple; expiry is Unix seconds. |
-| `complete(key, seqno)` | Atomically clear only the matching running reservation while retaining its consumed sequence until expiry. May return a Promise; expired records may already be absent. |
+| `claim(key, seqno, expiresAt)` | Atomically reserve a higher sequence when idle, returning `Accepted`, `AlreadyConsumed`, `InProgress`, `Capacity`, or `Expired`, synchronously. The key is an opaque JSON tuple; expiry is Unix seconds. |
+| `complete(key, seqno)` | Atomically clear only the matching running reservation while retaining its consumed sequence until expiry. Returns synchronously; expired records may already be absent. |
 
 All dispatchers serving the same sessions must share the store and namespace.
 Claims must be committed before returning `Accepted`; rejected claims must not
@@ -180,15 +180,60 @@ Browser builds use the compiler's
 
 ## Synchronous dispatch
 
-For a host that executes a single synchronous request per worker, construct
-`Dispatcher(appRoot, { synchronous: true })`. Register direct event functions or
-preloaded module objects; synchronous mode rejects module path strings. `handle`
-then returns a plain UI result, using the same `context form`, values/commands,
-and replay semantics as ordinary dispatch.
+`Dispatcher(appRoot)` executes event handlers synchronously. The previous
+`synchronous: true` option remains accepted; `synchronous: false` raises
+`UiAsyncDispatchRemoved`. Register direct event functions,
+module objects, or module/function names through `event()` or `routesFromXml()`.
+Call `preload()` during startup to resolve named modules using the application's
+package context and validate every named export. Each resolved module is imported
+once per dispatcher preparation; the completed registry stores callable handlers.
+`handle()` then returns a plain UI result, using the same `context form`,
+values/commands, and replay semantics as ordinary dispatch. No file access,
+module resolution, or dynamic import occurs during prepared dispatch.
+
+```lango
+dispatcher = new ui/Dispatcher(appRoot, {
+    synchronous: true
+})
+dispatcher.routesFromXml(uiFile)
+```
+
+The XML uses the existing event schema:
+
+```xml
+<ui>
+    <event path="/app/save" mod="@shop/ui" func="save" />
+</ui>
+```
+
+In a `lango-api` worker factory, return the dispatcher as a preload resource:
+
+```lango
+return {
+    routes: routes.values()
+    preload: [dispatcher]
+}
+```
+
+The host calls each resource's `preload()` and waits for it before accepting
+requests. The factory and request handlers remain synchronous. API wildcard
+routes still forward requests to `dispatcher.handle(input)`. Create the dispatcher
+inside the factory so every worker owns its registry.
+
+Outside that host, `preload()` returns a Promise for the dispatcher. Concurrent
+calls share the same preparation; calls after success are idempotent. Registration
+is blocked while loading and after success. Failed preparation rejects without
+publishing a partially resolved registry and can be retried. Synchronous dispatch
+with unresolved module names, dispatch while loading, and dispatch after failed
+preparation throw `UiDispatcherNotPreloaded` before replay reservation. Direct
+functions/module objects can still be used synchronously without preparation.
+Module names always require preparation before dispatch. XML is read by
+`routesFromXml()`; prepared registries keep working after
+the XML or package files are removed. Changes require a new dispatcher/restart.
 
 The replay store's `claim` and `complete` methods and every event handler must
 return synchronously. A Promise or thenable raises `UiSynchronousResultRequired`.
 An accepted sequence remains consumed on handler failure, and the reservation is
-released in `finally`. Normal dispatch remains the default and still supports
-asynchronous handlers. Worker hosts should provide a shared store through
+released in `finally`. A failed or rejected Promise result consumes its accepted
+sequence too. Worker hosts should provide a shared store through
 `context state`; independent per-worker memory does not coordinate replay.

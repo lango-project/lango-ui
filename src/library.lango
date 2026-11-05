@@ -13,20 +13,24 @@ export class Dispatcher
     methods
         event(options)
         routesFromXml(file)
+        preload()
         handle(input)
         dispatch(route, input)
         protectedEvent(route, input, identity)
         reservedEvent(route, input, key, outcome, store)
-        protectedEventSync(route, input, identity)
 
 Dispatcher(appRoot, options = null)
     @appRoot = appRoot
     @routes = []
     @replay = null
-    @synchronous = false
+    @preloaded = false
+    @preloadRequested = false
+    @loading = null
+    @needsPreload = false
     if options != null
         @replay = options.replayStore
-        @synchronous = options.synchronous == true
+        if options.synchronous == false
+            throw "UiAsyncDispatchRemoved"
     @customReplay = @replay != null
     if @replay == null
         @replay = new MemoryReplayStore()
@@ -34,19 +38,87 @@ Dispatcher(appRoot, options = null)
         throw "UiReplayStoreRequired"
 
 Dispatcher:event(options)
-    if !is_string(options.path) or options.path[0] != "/"
+    if @preloaded or @loading != null
+        throw "UiRegistryAlreadyLoadingOrPreloaded"
+    if !is_object(options) or !is_string(options.path) or options.path[0] != "/"
         throw "UiEventRequiresAbsolutePath"
-    if options.function == null
-        throw "UiEventRequiresFunction"
-    if @synchronous and is_string(options.function)
-        if options.module == null or is_string(options.module)
-            throw "UiSynchronousModuleMustBePreloaded"
-    routes = @routes
-    for routes as route
+    handler = options.function
+    module = options.module
+    if !is_kindof(handler, Function)
+        if !is_string(handler) or handler == ""
+            throw "UiEventRequiresFunction"
+        if module == null or (is_string(module) and module == "")
+            throw "UiEventRequiresModule"
+    for @routes as route
         if route.path == options.path
             throw "UiDuplicateEventPath: ${options.path}"
-    routes[routes.length] = options
+    if is_string(module) and is_string(handler)
+        @needsPreload = true
+    @routes.add({
+        path: options.path
+        module: module
+        function: handler
+    })
     return @this
+
+Dispatcher:preload()
+    if @preloaded
+        return Promise/resolve(@this)
+    if @loading != null
+        return @loading
+    @preloadRequested = true
+    @loading = prepare()
+    return @loading
+
+Dispatcher:prepare()
+    return Promise/resolve().then(()
+        return prepareEvents(@appRoot, @routes, 0, [], {
+        })
+    ).then((routes)
+        @routes = routes
+        @needsPreload = false
+        @preloaded = true
+        return @this
+    ).finally(()
+        @loading = null
+    )
+
+prepareEvents(appRoot, routes, index, prepared, cache)
+    if index == routes.length
+        return Promise/resolve(prepared)
+    route = routes[index]
+    if is_kindof(route.function, Function) or !is_string(route.module)
+        prepared.add(preparedEvent(route, route.module))
+        return prepareEvents(appRoot, routes, index + 1, prepared, cache)
+    resolver = nodeModule/createRequire(path.join(appRoot, "package.json"))
+    file = resolver.resolve(route.module)
+    if file in cache
+        prepared.add(preparedEvent(route, cache[file]))
+        return prepareEvents(appRoot, routes, index + 1, prepared, cache)
+    return import_module(file).then((module)
+        capture route
+        capture appRoot
+        capture routes
+        capture index
+        capture prepared
+        capture cache
+        capture file
+        cache[file] = module
+        prepared.add(preparedEvent(route, module))
+        return prepareEvents(appRoot, routes, index + 1, prepared, cache)
+    )
+
+preparedEvent(route, module)
+    handler = route.function
+    if is_string(handler)
+        if !is_object(module) or !is_kindof(module[handler], Function)
+            throw "UiHandlerNotExported: ${route.path} -> ${handler}"
+        handler = module[handler]
+    return {
+        path: route.path
+        module: null
+        function: handler
+    }
 
 Dispatcher:routesFromXml(file)
     root = xml2obj(fs.readFileSync(file, "utf8"))
@@ -63,6 +135,8 @@ Dispatcher:routesFromXml(file)
     return @this
 
 Dispatcher:handle(input)
+    if @loading != null or (@preloadRequested and !@preloaded) or @needsPreload
+        throw "UiDispatcherNotPreloaded"
     context request
     context response
     context token
@@ -77,8 +151,6 @@ Dispatcher:handle(input)
     for routes as route
         if route.path == request.path
             if identity != null
-                if @synchronous
-                    return protectedEventSync(route, input, identity)
                 return protectedEvent(route, input, identity)
             return dispatch(route, input)
     throw "UiEventNotFound"
@@ -110,41 +182,6 @@ eventIdentity()
         expiresAt: claims.sessionExpiresAt
     }
 
-Dispatcher:protectedEvent(route, input, identity)
-    context request
-    context response
-    context token
-    context log
-    instance = input.formInstanceId
-    if !is_string(instance) or instance == "" or instance.length > 128
-        return eventFailure(400, "UiFormInstanceRequired", null)
-    key = to_json([identity.sessionId, input.formId, instance])
-    store = @replay
-    shared = requestState()
-    context state = shared
-    if @customReplay != true
-        if shared != null
-            store = shared
-    ready = Promise/resolve()
-    return ready.then(()
-        capture store
-        capture key
-        capture input
-        capture identity
-        return store.claim(key, input.seqno, identity.expiresAt)
-    ).then((outcome)
-        capture route
-        capture input
-        capture key
-        capture request
-        capture response
-        capture token
-        capture log
-        capture store
-        capture state
-        return reservedEvent(route, input, key, outcome, store)
-    )
-
 requestState()
     context state
     store = null
@@ -164,24 +201,6 @@ Dispatcher:reservedEvent(route, input, key, outcome, store)
     context log
     context state
     switch outcome
-      case "Accepted"
-          seqno = input.seqno
-          ready = Promise/resolve()
-          return ready.then(()
-              capture route
-              capture input
-              capture request
-              capture response
-              capture token
-              capture log
-              capture state
-              return dispatch(route, input)
-          ).finally(()
-              capture store
-              capture key
-              capture seqno
-              return store.complete(key, seqno)
-          )
       case "AlreadyConsumed"
       case "InProgress"
           return eventFailure(409, "UiReplayConflict", outcome)
@@ -211,54 +230,24 @@ Dispatcher:dispatch(route, input)
     context token
     context log
     context state = requestState()
-    if @synchronous
-        handler = route.function
-        if is_string(handler)
-            if route.module == null or is_string(route.module)
-                throw "UiSynchronousModuleMustBePreloaded"
-            mod = route.module
-            handler = mod[handler]
-        if !is_kindof(handler, Function)
-            throw "UiEventRequiresFunction"
-        return invokeEvent({
-            handler: handler
-        }, input, true)
-    if is_string(route.function)
-        resolver = nodeModule/createRequire(path.join(@appRoot, "package.json"))
-        moduleFile = resolver.resolve(route.module)
-        return import_module(moduleFile).then((module)
-            capture route
-            capture input
-            capture request
-            capture response
-            capture token
-            capture log
-            capture state
-            routeModule = {
-                handler: module[route.function]
-            }
-            return invokeEvent(routeModule, input)
-        )
+    handler = route.function
+    if is_string(handler)
+        if route.module == null or is_string(route.module)
+            throw "UiDispatcherNotPreloaded"
+        mod = route.module
+        handler = mod[handler]
+    if !is_kindof(handler, Function)
+        throw "UiEventRequiresFunction"
     return invokeEvent({
-        handler: route.function
+        handler: handler
     }, input)
 
-invokeEvent(route, input, synchronous = false)
+invokeEvent(route, input)
     changes = {
     }
     commands = []
     context form = createForm(input.values, changes, commands)
-    result = route.handler(input)
-    if synchronous
-        return eventResult(input, changes, commands, synchronousValue(result))
-    if util/types/isPromise(result)
-        return result.then((values)
-            capture input
-            capture changes
-            capture commands
-            capture form
-            return eventResult(input, changes, commands, values)
-        )
+    result = synchronousValue(route.handler(input))
     return eventResult(input, changes, commands, result)
 
 synchronousValue(value)
@@ -272,7 +261,7 @@ synchronousValue(value)
             throw "UiSynchronousResultRequired"
     return value
 
-Dispatcher:protectedEventSync(route, input, identity)
+Dispatcher:protectedEvent(route, input, identity)
     instance = input.formInstanceId
     if !is_string(instance) or instance == "" or instance.length > 128
         return eventFailure(400, "UiFormInstanceRequired", null)

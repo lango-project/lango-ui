@@ -20,11 +20,14 @@
     "dist/**",
     "README.md",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "tools/*.lango"
   ],
   "scripts": {
     "build": "lango build src/library.lango --out dist/library.mjs",
-    "test": "lango test src/library.lango && lango run src/replay_test.lango && lango run src/sync_test.lango"
+    "test": "lango test src/library.lango && lango run src/replay_test.lango && lango run src/sync_test.lango && npm run test:preload",
+    "test:preload": "lango build src/preload_fixture.lango --out dist/test/preload_fixture.mjs && lango build src/preload_test.lango --out dist/test/preload_test.mjs --executable && node dist/test/preload_test.mjs",
+    "prebuild": "lango run tools/clean.lango"
   },
   "devDependencies": {
     "@lango-project/lango-js": "^0.1.8"

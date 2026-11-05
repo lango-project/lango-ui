@@ -1,0 +1,14 @@
+import js "node:crypto" as crypto
+
+export edit(input)
+
+global moduleId = crypto/randomUUID()
+
+edit(input)
+    global moduleId
+    context form
+    form.city.value = "Saved: ${form.city.value}"
+    form.saveButton.enabled = false
+    return {
+        moduleId: moduleId
+    }
