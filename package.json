@@ -1,6 +1,6 @@
 {
   "name": "@lango-project/lango-ui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Server-driven UI protocol and control model for Lango applications.",
   "license": "Apache-2.0",
   "publishConfig": {
@@ -25,7 +25,7 @@
   ],
   "scripts": {
     "build": "lango build src/library.lango --out dist/library.mjs",
-    "test": "lango test src/library.lango && lango run src/replay_test.lango && lango run src/sync_test.lango && lango run src/pages_test.lango && npm run test:preload",
+    "test": "lango test src/library.lango && lango run src/replay_test.lango && lango run src/sync_test.lango && lango run src/pages_test.lango && lango run src/protocol_test.lango && npm run test:preload",
     "test:preload": "lango build src/preload_fixture.lango --out dist/test/preload_fixture.mjs && lango build src/preload_test.lango --out dist/test/preload_test.mjs --executable && node dist/test/preload_test.mjs",
     "prebuild": "lango run tools/clean.lango"
   },

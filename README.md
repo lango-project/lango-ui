@@ -447,3 +447,25 @@ consumes no seqno. Use it for actions such as New/Open in the contact-book examp
 under `lango-client/examples`. It is separate from `validate: true`: loading a
 different record may discard an incomplete form after confirmation. The server
 still validates all reads/writes and record versions.
+
+## UI protocol 1
+
+Dispatcher event results, Response builder output and Dispatcher HTTP errors now
+include top-level numeric `protocol: 1`. `protocolVersion()` returns 1. Client
+Session sends that value on UI events; versioning does not change normal API,
+bootstrap, ping or logout contracts.
+
+An explicitly unsupported request version is rejected before a replay claim or
+handler execution: verified HTTP callers receive 400/`UiProtocolUnsupported`
+with the supported protocol tag; standalone legacy calls throw that error.
+Missing tags are accepted as version 1 for the unversioned preview transition.
+New results always emit the tag. Unsupported responses are rejected by the client
+before UI changes. A missing tag is a compatibility bridge, not feature
+negotiation. Required fields or changes to controls, commands, value semantics or
+ordering guarantees need a new protocol version. Safe optional metadata may be
+added under version 1.
+
+The compatible starter release set is compiler 0.1.9 with API/UI/client 0.2.0.
+The application generator in `lango-client` pins that set and includes server
+validation, shared Pages, a same-origin BrowserHost and a browser import map.
+See the client README for generation and packed-package smoke verification.

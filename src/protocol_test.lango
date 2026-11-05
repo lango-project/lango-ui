@@ -1,0 +1,94 @@
+import js global Date
+import "./library"
+    class Dispatcher
+    class Response
+
+export main(args)
+
+global calls = 0
+
+class Reply
+    properties
+        code
+    methods
+        status(code)
+        header(name, value)
+        send(value)
+        discardTokenChanges()
+
+Reply()
+    @code = 200
+
+Reply:status(code)
+    @code = code
+    return @this
+
+Reply:header(name, value)
+    return @this
+
+Reply:send(value)
+    return value
+
+Reply:discardTokenChanges()
+    return null
+
+save(input)
+    global calls
+    calls = calls + 1
+    return {
+        text: "saved"
+    }
+
+input(seqno)
+    return {
+        formId: "page"
+        formInstanceId: "instance"
+        seqno: seqno
+        values: {
+            text: "input"
+        }
+    }
+
+main(args)
+    global calls
+    context request = {
+        path: "/save"
+        id: "protocol-test"
+    }
+    context token = {
+        sessionId: "session"
+        sessionExpiresAt: Date/now() / 1000 + 3600
+    }
+    context log
+    reply = new Reply()
+    context response = reply
+    dispatcher = new Dispatcher(".")
+    dispatcher.event({
+        path: "/save"
+        function: save
+    })
+    message = null
+    result = null
+    for [0, 2, "1", null] as version
+        message = input(1)
+        message.protocol = version
+        result = dispatcher.handle(message)
+        assert result.error == "UiProtocolUnsupported"
+        assert result.protocol == 1
+        assert reply.code == 400
+        assert calls == 0
+    message = input(1)
+    message.protocol = 1
+    result = dispatcher.handle(message)
+    assert result.protocol == 1
+    assert result.vals.text == "saved"
+    assert calls == 1
+    duplicate = dispatcher.handle(message)
+    assert duplicate.error == "UiReplayConflict"
+    result = dispatcher.handle(input(2))
+    assert result.protocol == 1
+    assert calls == 2
+    builder = new Response("page", 1)
+    result = builder.result()
+    assert result.protocol == 1
+    println("PASS protocol 1 tags responses, accepts unversioned preview peers and rejects incompatible input before replay/handler")

@@ -15,6 +15,11 @@ import "./event_form"
     createForm(values, changes, commands)
     validateNames(values)
 
+export protocolVersion()
+
+protocolVersion()
+    return 1
+
 export class Dispatcher
     methods
         event(options)
@@ -148,6 +153,11 @@ Dispatcher:handle(input)
     context token
     context log
     identity = eventIdentity()
+    if is_object(input) and "protocol" in input
+        if input.protocol != protocolVersion()
+            if identity != null
+                return eventFailure(400, "UiProtocolUnsupported", "Expected protocol 1")
+            throw "UiProtocolUnsupported"
     error = eventInputError(input)
     if error != null
         if identity != null
@@ -225,6 +235,7 @@ eventFailure(status, error, reason)
     if status == 401
         response.header("WWW-Authenticate", "Bearer")
     return response.status(status).send({
+        protocol: protocolVersion()
         error: error
         reason: reason
         requestId: request.id
@@ -304,6 +315,7 @@ eventResult(input, changes, commands, values)
         validateNames(values)
         mergeValues(changes, values)
     return {
+        protocol: protocolVersion()
         formId: input.formId
         seqno: input.seqno
         ui: {
@@ -691,6 +703,7 @@ Response:result()
     values = @vals
     commands = @cmds
     return {
+        protocol: protocolVersion()
         formId: @formId
         seqno: @seqno
         ui: {
