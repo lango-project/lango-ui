@@ -1,8 +1,8 @@
 # @lango-project/lango-ui
 
 `lango-ui` is the shared server-driven UI protocol for Lango applications.
-It is written in Lango. Its initial library builds form-scoped, atomic UI
-responses; browser rendering and API integration follow in later milestones.
+It is written in Lango and builds form-scoped, atomic UI responses for
+synchronous API dispatch. Browser rendering and navigation live in `lango-client`.
 
 ## Response builder
 
@@ -151,8 +151,9 @@ or `{ name, text, event }`. `value`, `then`, and prototype-related control names
 are reserved in event value trees.
 
 The current milestone covers server event dispatch and response construction.
-The browser renderer is provided by `lango-client`; the initial GET shell and
-template routing are pending.
+The browser renderer and URL navigation are provided by `lango-client`. Its demo
+serves a GET shell and delivers form-scoped URL events; shared prefix/template
+routing is still pending.
 
 ## Client protocol core
 
