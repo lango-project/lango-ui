@@ -349,3 +349,47 @@ inline declarations; a classes command replaces the full class list. Null clears
 the setting. Browser custom classes and theme defaults are selected explicitly
 with `lango-client/Types`; wire definitions carry type names, never executable
 code. Theme CSS is loaded by the application's HTML shell.
+
+## Select and Checkbox builders
+
+`new Select(options)` and `new Checkbox(options)` accept maps and produce the
+native input definitions supported by `lango-client`:
+
+```lango
+country = form.add(new ui/Select({
+    name: "country"
+    label: "Country"
+    value: "tr"
+    event: "/preferences/change"
+    options: [{
+        value: "tr"
+        text: "Türkiye"
+    }, {
+        value: "gb"
+        text: "United Kingdom"
+    }]
+}))
+subscribed = form.add(new ui/Checkbox({
+    name: "subscribed"
+    label: "Receive updates"
+    value: false
+    event: "/preferences/change"
+}))
+```
+
+Select option values/text are strings; option values must be unique. Each option
+may specify a Boolean `disabled`. The selected value must occur in that list or
+be null for no selection. An empty string is a valid distinct option value.
+Without options, the list is empty. Checkbox values are Boolean, defaulting to
+false when the initial value is absent/null. Builders validate at construction
+and `definition()`, including edits made through the public `options`/`value`
+properties. They retain CSS classes/styles and support `event` or explicit
+`events` mappings. `label` supplies an accessible name in the browser, not a
+visible caption.
+
+In event handlers, `context form.country.value` is a string/null and
+`form.subscribed.value` is Boolean. Reads and writes use the normal scalar value,
+inheritance and response contracts. The UI builder's option list is not a server
+validation registry: handlers must validate the incoming client data separately.
+Change an option list with a structural replacement. This first version supports
+single selection and a two-state checkbox.

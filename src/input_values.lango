@@ -1,0 +1,37 @@
+export selectItems(options)
+export selectIndex(items, value)
+
+selectItems(options)
+    if options == null
+        return []
+    if !is_array(options)
+        throw "UiSelectOptionsMustBeArray"
+    items = []
+    values = []
+    for options as option
+        if !is_object(option) or !is_string(option.value) or !is_string(option.text)
+            throw "UiSelectOptionRequiresValueAndText"
+        if values.includes(option.value)
+            throw "UiSelectDuplicateValue"
+        disabled = option.disabled
+        if disabled == null
+            disabled = false
+        if !is_bool(disabled)
+            throw "UiSelectOptionDisabledMustBeBoolean"
+        values.add(option.value)
+        items.add({
+            value: option.value
+            text: option.text
+            disabled: disabled
+        })
+    return items
+
+selectIndex(items, value)
+    if value == null
+        return -1
+    if !is_string(value)
+        throw "UiSelectValueMustBeStringOrNull"
+    for items as index: item
+        if item.value == value
+            return index
+    throw "UiSelectValueNotInOptions"

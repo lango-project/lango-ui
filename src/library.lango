@@ -4,6 +4,9 @@ import js "node:path" as path
 import js "node:util" as util
 import js global Promise
 import js global URL
+import "./input_values"
+    selectItems(options)
+    selectIndex(items, value)
 import "./replay"
     class MemoryReplayStore
 import "./event_form"
@@ -360,6 +363,66 @@ export class Button : Control
         definition()
 
 export class Value : Control
+
+export class Select : Control
+    properties
+        options
+        event
+        label
+    methods
+        definition()
+
+export class Checkbox : Control
+    properties
+        event
+        label
+    methods
+        definition()
+
+Select(options)
+    super(inputName(options, "Select"), "Select")
+    @options = selectItems(options.options)
+    selectIndex(@options, options.value)
+    @value = options.value
+    @label = options.label
+    @event = options.event
+    if options.events != null
+        @events = options.events
+
+Select:definition()
+    items = selectItems(@options)
+    selectIndex(items, @value)
+    result = super.definition()
+    result.options = items
+    result.event = @event
+    result.label = @label
+    return result
+
+Checkbox(options)
+    super(inputName(options, "Checkbox"), "Checkbox")
+    value = options.value
+    if value == null
+        value = false
+    if !is_bool(value)
+        throw "UiCheckboxValueMustBeBoolean"
+    @value = value
+    @label = options.label
+    @event = options.event
+    if options.events != null
+        @events = options.events
+
+Checkbox:definition()
+    if !is_bool(@value)
+        throw "UiCheckboxValueMustBeBoolean"
+    result = super.definition()
+    result.event = @event
+    result.label = @label
+    return result
+
+inputName(options, type)
+    if !is_object(options) or is_array(options)
+        throw "Ui${type}RequiresMap"
+    return options.name
 
 Value(name, value)
     super(name, "Value")
@@ -940,3 +1003,55 @@ test "control builders retain CSS classes and styles outside values"
     assert definition.controls[0].classes[0] == "primary"
     assert definition.controls[0].style["background-color"] == "navy"
     assert definition.controls[0].value == null
+
+test "Select and Checkbox builders preserve typed values, options and accessible names"
+    form = new Form("preferences")
+    country = form.add(new Select({
+        name: "country"
+        label: "Country"
+        value: ""
+        event: "/save"
+        options: [{
+            value: ""
+            text: "Empty code"
+        }, {
+            value: "archive"
+            text: "Archived"
+            disabled: true
+        }]
+    }))
+    subscribed = form.add(new Checkbox({
+        name: "subscribed"
+        label: "Receive updates"
+    }))
+    definition = form.definition()
+    assert definition.controls[0].type == "Select"
+    assert definition.controls[0].value == ""
+    assert definition.controls[0].options[1].disabled == true
+    assert definition.controls[0].event == "/save"
+    assert definition.controls[0].label == "Country"
+    assert definition.controls[1].type == "Checkbox"
+    assert definition.controls[1].value == false
+    assert definition.controls[1].label == "Receive updates"
+    country.value = null
+    subscribed.value = true
+    definition = form.definition()
+    assert definition.controls[0].value == null
+    assert definition.controls[1].value == true
+    country.value = "unknown"
+    failed = false
+    try
+        form.definition()
+    catch error
+        assert error == "UiSelectValueNotInOptions"
+        failed = true
+    assert failed
+    country.value = null
+    subscribed.value = "false"
+    failed = false
+    try
+        form.definition()
+    catch error
+        assert error == "UiCheckboxValueMustBeBoolean"
+        failed = true
+    assert failed
