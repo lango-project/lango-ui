@@ -1,6 +1,8 @@
 import js "node:crypto" as crypto
 
 export edit(input)
+export pageLayout(selected)
+export pageScreen(selected)
 
 global moduleId = crypto/randomUUID()
 
@@ -11,4 +13,25 @@ edit(input)
     form.saveButton.enabled = false
     return {
         moduleId: moduleId
+    }
+
+pageLayout(selected)
+    return {
+        type: "Container"
+        controls: [{
+            type: "Container"
+            name: "__content__"
+            controls: []
+        }]
+    }
+
+pageScreen(selected)
+    global moduleId
+    return {
+        type: "Form"
+        controls: [{
+            type: "Value"
+            name: "moduleId"
+            value: moduleId
+        }]
     }

@@ -3,6 +3,7 @@ import js "node:module" as nodeModule
 import js "node:path" as path
 import js "node:util" as util
 import js global Promise
+import js global URL
 import "./replay"
     class MemoryReplayStore
 import "./event_form"
@@ -719,3 +720,202 @@ editProfile(input)
             city: "Istanbul"
         }
     }
+
+export class Pages
+    methods
+        template(options)
+        page(options)
+        routesFromXml(file)
+        preload()
+        match(url)
+        render(options)
+
+Pages(appRoot = ".")
+    @appRoot = path.resolve(appRoot)
+    @preloadRequested = false
+    @templates = []
+    @pages = []
+    @loading = null
+    @preloaded = false
+    @needsPreload = false
+    @sealed = false
+
+Pages:template(options)
+    registerPageRoute(options, true)
+    return @this
+
+Pages:page(options)
+    registerPageRoute(options, false)
+    return @this
+
+Pages:registerPageRoute(options, template)
+    if @sealed or @loading != null or @preloaded
+        throw "UiPageRegistrySealed"
+    if !is_object(options)
+        throw "UiPageRouteRequiresMap"
+    routePath = options.path
+    if !is_string(routePath) or pagePath(routePath) != routePath or routePath.includes("*")
+        throw "UiPageRouteRequiresPath"
+    if template and !routePath.endsWith("/")
+        throw "UiTemplateRequiresTrailingSlash"
+    handler = options.function
+    module = options.module
+    if !is_kindof(handler, Function)
+        if !is_string(handler) or handler == "" or module == null or module == ""
+            throw "UiPageRouteRequiresFunction"
+    routes = @pages
+    if template
+        routes = @templates
+    for routes as route
+        if route.path == routePath
+            throw "UiDuplicatePageRoute: ${routePath}"
+    if is_string(module) and is_string(handler)
+        @needsPreload = true
+    routes.add({
+        path: routePath
+        module: module
+        function: handler
+    })
+
+Pages:routesFromXml(file)
+    root = xml2obj(fs.readFileSync(file, "utf8"))
+    if root.tag() != "ui"
+        throw "UiConfigRootMustBeUi"
+    for root.children() as tag
+        kind = tag.tag()
+        if kind != "template" and kind != "page"
+            throw "UiPageConfigRequiresTemplateOrPage"
+        for tag.attributes() as name: value
+            if name != "path" and name != "mod" and name != "func"
+                throw "UiPageConfigUnknownAttribute: ${name}"
+        if tag.children().length != 0 or tag.innerText().trim() != ""
+            throw "UiPageConfigRouteMustBeEmpty"
+        registerPageRoute({
+            path: tag.path
+            module: tag.mod
+            function: tag.func
+        }, kind == "template")
+    return @this
+
+Pages:preload()
+    if @preloaded
+        return Promise/resolve(@this)
+    if @loading != null
+        return @loading
+    @sealed = true
+    @preloadRequested = true
+    @loading = preparePages()
+    return @loading
+
+Pages:preparePages()
+    return Promise/resolve().then(()
+        return prepareEventsForPages()
+    ).finally(()
+        @loading = null
+    )
+
+Pages:prepareEventsForPages()
+    cache = {
+    }
+    return prepareEvents(@appRoot, @templates, 0, [], cache).then((templates)
+        capture cache
+        @templates = templates
+        return prepareEvents(@appRoot, @pages, 0, [], cache)
+    ).then((pages)
+        @pages = pages
+        @needsPreload = false
+        @preloaded = true
+        return @this
+    )
+
+Pages:match(url)
+    @sealed = true
+    pathname = pagePath(url)
+    selected = null
+    for @pages as route
+        if route.path == pathname
+            selected = route
+            break
+    if selected == null
+        return null
+    template = null
+    for @templates as route
+        if pathname.startsWith(route.path)
+            if template == null or route.path.length > template.path.length
+                template = route
+    if template == null
+        throw "UiPageTemplateNotFound: ${pathname}"
+    return {
+        url: url
+        pathname: pathname
+        template: template.path
+        page: selected.path
+    }
+
+Pages:render(options)
+    if !is_object(options)
+        throw "UiPageRenderRequiresMap"
+    if @loading != null or @needsPreload or (@preloadRequested and !@preloaded)
+        throw "UiPageRegistryNotPreloaded"
+    selected = match(options.url)
+    if selected == null
+        throw "UiPageNotFound"
+    pageRoute = pageRouteAt(@pages, selected.page)
+    page = null
+    if options.template == selected.template
+        page = pageDefinition(pageRoute, selected)
+        page.name = "__content__"
+        return {
+            template: selected.template
+            target: ["content", "__content__"]
+            control: page
+        }
+    templateRoute = pageRouteAt(@templates, selected.template)
+    template = pageDefinition(templateRoute, selected)
+    if template.type != "Container" or !is_array(template.controls)
+        throw "UiPageTemplateRequiresContainer"
+    slot = -1
+    for template.controls as index: control
+        if control.name == "__content__"
+            if slot != -1 or control.type != "Container"
+                throw "UiPageTemplateRequiresContentSlot"
+            slot = index
+    if slot == -1
+        throw "UiPageTemplateRequiresContentSlot"
+    page = pageDefinition(pageRoute, selected)
+    page.name = "__content__"
+    template.controls[slot] = page
+    template.name = "content"
+    return {
+        template: selected.template
+        target: "content"
+        control: template
+    }
+
+pagePath(url)
+    if !is_string(url) or !url.startsWith("/") or url.startsWith("//") or url.includes("\\") or url.trim() != url
+        throw "UiPageRequiresLocalUrl"
+    parsed = new URL(url, "http://lango.invalid")
+    if parsed.origin != "http://lango.invalid"
+        throw "UiPageRequiresLocalUrl"
+    return parsed.pathname
+
+pageRouteAt(routes, path)
+    for routes as route
+        if route.path == path
+            return route
+    throw "UiPageNotFound"
+
+pageDefinition(route, selected)
+    handler = route.function
+    if is_string(handler)
+        module = route.module
+        if module == null or is_string(module)
+            throw "UiPageRegistryNotPreloaded"
+        handler = module[handler]
+    if !is_kindof(handler, Function)
+        throw "UiPageRouteRequiresFunction"
+    value = synchronousValue(handler(selected))
+    if !is_object(value) or !is_string(value.type)
+        throw "UiPageRequiresControlDefinition"
+    return from_json(to_json(value))

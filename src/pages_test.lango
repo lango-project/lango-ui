@@ -1,0 +1,208 @@
+import js global Promise
+import js "node:fs" as fs
+import js "node:os" as os
+import js "node:path" as path
+import "./library"
+    class Pages
+    class Response
+
+export main(args)
+
+global templates = 0
+global pageCalls = 0
+
+layout(selected)
+    global templates
+    templates = templates + 1
+    context log
+    return {
+        type: "Container"
+        controls: [{
+            type: "Text"
+            name: "heading"
+            value: selected.template
+        }, {
+            type: "Container"
+            name: "__content__"
+            controls: []
+        }]
+    }
+
+screen(selected)
+    global pageCalls
+    pageCalls = pageCalls + 1
+    context token
+    return {
+        type: "Form"
+        controls: [{
+            type: "Text"
+            name: "title"
+            value: "${selected.url}:${token.auth}"
+        }]
+    }
+
+asyncScreen(selected)
+    return Promise/resolve(null)
+
+invalidLayout(selected)
+    return {
+        type: "Form"
+        controls: []
+    }
+
+registry()
+    pages = new Pages()
+    for ["/", "/admin/", "/admin/reports/"] as prefix
+        pages.template({
+            path: prefix
+            function: layout
+        })
+    for ["/profile", "/details", "/admin/login", "/administrator", "/admin/reports/daily"] as url
+        pages.page({
+            path: url
+            module: {
+                screen: screen
+            }
+            function: "screen"
+        })
+    return pages
+
+expectRenderError(pages, options, expected)
+    failed = false
+    try
+        pages.render(options)
+    catch error
+        assert error == expected
+        failed = true
+    assert failed
+
+main(args)
+    context log
+    context token = {
+        auth: true
+    }
+    global templates
+    global pageCalls
+    pages = registry()
+    assert pages.match("/admin/login?return=profile#top").template == "/admin/"
+    assert pages.match("/admin/reports/daily").template == "/admin/reports/"
+    assert pages.match("/administrator").template == "/"
+    assert pages.match("/admin/../profile").page == "/profile"
+    assert pages.match("/missing") == null
+    assert templates == 0
+    assert pageCalls == 0
+    first = pages.render({
+        url: "/profile?tab=one#title"
+    })
+    assert first.target == "content"
+    assert first.template == "/"
+    assert first.control.type == "Container"
+    assert first.control.name == "content"
+    assert first.control.controls[1].name == "__content__"
+    assert first.control.controls[1].controls[0].value == "/profile?tab=one#title:true"
+    assert templates == 1
+    assert pageCalls == 1
+    next = pages.render({
+        url: "/details"
+        template: first.template
+    })
+    assert to_json(next.target) == to_json(["content", "__content__"])
+    assert next.control.type == "Form"
+    assert templates == 1
+    assert pageCalls == 2
+    patch = new Response("page", 2)
+    patch.replace(next.target, next.control)
+    patch.value("template", next.template)
+    result = patch.result()
+    assert result.ui.replace.content.__content__.type == "Form"
+    assert result.vals.template == "/"
+    admin = pages.render({
+        url: "/admin/login"
+        template: next.template
+    })
+    assert admin.target == "content"
+    assert admin.template == "/admin/"
+    assert templates == 2
+    back = pages.render({
+        url: "/profile"
+        template: admin.template
+    })
+    assert back.target == "content"
+    assert templates == 3
+    # A fresh worker reuses the browser marker without any retained session tree.
+    other = registry()
+    reused = other.render({
+        url: "/details"
+        template: "/"
+    })
+    assert is_array(reused.target)
+    assert templates == 3
+    expectRenderError(pages, {
+        url: "/missing"
+    }, "UiPageNotFound")
+    for ["https://example.com/profile", "//example.com/profile", "/bad\\path", " /profile", "/\n/example.com/profile"] as url
+        expectRenderError(pages, {
+            url: url
+        }, "UiPageRequiresLocalUrl")
+    locked = false
+    try
+        pages.page({
+            path: "/late"
+            function: screen
+        })
+    catch error
+        assert error == "UiPageRegistrySealed"
+        locked = true
+    assert locked
+    invalid = new Pages()
+    invalid.template({
+        path: "/"
+        function: invalidLayout
+    })
+    invalid.page({
+        path: "/invalid"
+        function: screen
+    })
+    expectRenderError(invalid, {
+        url: "/invalid"
+    }, "UiPageTemplateRequiresContainer")
+    asynchronous = new Pages()
+    asynchronous.template({
+        path: "/"
+        function: layout
+    })
+    asynchronous.page({
+        path: "/async"
+        function: asyncScreen
+    })
+    expectRenderError(asynchronous, {
+        url: "/async"
+        template: "/"
+    }, "UiSynchronousResultRequired")
+    println("PASS page selection, template reuse/switching, worker independence, context, URL validation and synchronous factories")
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), "lango-pages-"))
+    file = path.join(directory, "ui.xml")
+    definition = <ui>
+        <template path="/" mod="./missing.mjs" func="layout" />
+        <page path="/profile" mod="./missing.mjs" func="screen" />
+    </ui>
+    fs.writeFileSync(file, definition)
+    xml = new Pages(directory)
+    xml.routesFromXml(file)
+    assert xml.match("/profile").template == "/"
+    expectRenderError(xml, {
+        url: "/profile"
+    }, "UiPageRegistryNotPreloaded")
+    fs.unlinkSync(file)
+    fs.rmdirSync(directory)
+    return pages.preload().then((ready)
+        capture pages
+        capture token
+        assert ready == pages
+        rendered = pages.render({
+            url: "/profile"
+            template: "/"
+        })
+        assert rendered.control.type == "Form"
+        println("PASS page XML selection and preload preserve direct/module-object factories")
+    )

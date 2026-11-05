@@ -4,6 +4,7 @@ import js "node:os" as os
 import js "node:path" as path
 import "./library"
     class Dispatcher
+    class Pages
 
 export main(args)
 
@@ -82,16 +83,25 @@ main(args)
     })
     dispatcher.routesFromXml(file)
     rejectedDispatch(dispatcher)
+    pages = new Pages(appRoot)
+    pageXml = <ui>
+        <template path="/" mod="@test/events" func="pageLayout" />
+        <page path="/profile" mod="@test/events" func="pageScreen" />
+    </ui>
+    fs.writeFileSync(file, pageXml)
+    pages.routesFromXml(file)
     first = dispatcher.preload()
     assert first == dispatcher.preload()
     locked(dispatcher)
     rejectedDispatch(dispatcher)
-    return first.then((ready)
+    return Promise/all([first, pages.preload()]).then((ready)
         capture dispatcher
+        capture pages
         capture fs
         capture file
         capture link
-        assert ready == dispatcher
+        assert ready[0] == dispatcher
+        assert ready[1] == pages
         locked(dispatcher)
         fs.unlinkSync(file)
         fs.unlinkSync(link)
@@ -100,10 +110,19 @@ main(args)
         assert result.vals.city == "Saved: Ankara"
         assert result.cmds[0].value == false
         assert result.vals.moduleId == other.vals.moduleId
+        rendered = pages.render({
+            url: "/profile"
+        })
+        assert rendered.control.controls[0].controls[0].value == result.vals.moduleId
+        reused = pages.render({
+            url: "/profile"
+            template: "/"
+        })
+        assert reused.control.controls[0].value == result.vals.moduleId
         return dispatcher.preload()
     ).then(()
         capture appRoot
-        println("PASS UI XML and package modules preload once; frozen synchronous registries work after XML/package removal")
+        println("PASS UI event/page XML and package modules preload once; frozen synchronous registries work after XML/package removal")
         normal = normalDispatcher(appRoot)
         return checkNormal(normal)
     ).then(()

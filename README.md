@@ -152,8 +152,8 @@ are reserved in event value trees.
 
 The current milestone covers server event dispatch and response construction.
 The browser renderer and URL navigation are provided by `lango-client`. Its demo
-serves a GET shell and delivers form-scoped URL events; shared prefix/template
-routing is still pending.
+serves a GET shell and delivers form-scoped URL events. The `Pages` registry
+selects exact pages and the longest matching template prefix.
 
 ## Client protocol core
 
@@ -238,3 +238,92 @@ An accepted sequence remains consumed on handler failure, and the reservation is
 released in `finally`. A failed or rejected Promise result consumes its accepted
 sequence too. Worker hosts should provide a shared store through
 `context state`; independent per-worker memory does not coordinate replay.
+
+## Page templates and URL routes
+
+`Pages(appRoot = ".")` is a separate UI registry. It does not change API endpoint
+matching. Register exact pages and templates whose paths end in `/`:
+
+```lango
+pages = new ui/Pages(appRoot)
+pages.template({
+    path: "/"
+    function: createPublicTemplate
+})
+pages.template({
+    path: "/admin/"
+    function: createAdminTemplate
+})
+pages.page({
+    path: "/admin/login"
+    function: createLoginForm
+})
+```
+
+`match(url)` returns null for an unknown page, otherwise a descriptor with `url`,
+`pathname`, `template`, and `page`. Query/fragment do not affect selection. Page
+paths are exact; the longest matching template prefix wins. `/admin/` does not
+match `/administrator` or `/admin`. Only local absolute URLs are accepted;
+native URL pathname normalization applies. A match seals registration. Matching
+does not invoke factories, so the GET handler can use the same registry to decide
+whether to serve its fixed HTML shell; missing assets need not become HTML.
+
+Factories receive that descriptor, run synchronously in the existing request
+contexts, and return wire control definitions. A template must be a `Container`
+with one direct child `Container` named `__content__`. The registry installs the
+page there and names the outer template `content`. Template factories run before
+page factories on first entry or a template switch. Definitions are copied before
+composition, so factory-owned objects are not mutated.
+
+The root browser Form needs hidden `Value` controls named `url` and `template`
+(initially null), plus an empty `Container` named `content`. In the URL handler:
+
+```lango
+context form
+context response
+rendered = pages.render({
+    url: form.url.value
+    template: form.template.value
+})
+result = new ui/Response(input.formId, input.seqno)
+result.replace(rendered.target, rendered.control)
+result.value("template", rendered.template)
+response.send(result.result())
+return null
+```
+
+`render()` returns `{ template, target, control }`. With no matching current
+marker, it replaces the entire `content` template. With the same marker, it
+replaces only `["content", "__content__"]`; the template DOM, values and other
+nested forms survive. The page Form always receives a fresh instance. Apply the
+marker and replacement atomically using the normal response protocol. A failed
+patch must retain the previous marker. An unknown page throws `UiPageNotFound`.
+
+The marker describes browser state; it is not authorization or a server cache.
+Every page factory must enforce its permissions even when a template is reused.
+Template factories are layout builders, not guards for subsequent pages. No
+worker retains the UI tree: another worker uses the same registry and browser
+marker. Leaving a prefix discards its template; returning recreates it. Refresh
+starts a new root Form. Clear the marker and rerun the URL event after logout or
+another identity change. Screen caching and scroll restoration are not provided.
+
+Registration accepts direct functions, module objects with a function name, or
+npm module names with exported function names, like Dispatcher. For npm modules,
+include `pages` in the worker factory's `preload` list; loading finishes at startup
+before requests. `preload()` is idempotent, validates exports and freezes the
+registry. Registries with unresolved modules reject rendering. Module resolution
+starts at `appRoot`.
+
+`pages.routesFromXml(file)` reads a separate page registry:
+
+```xml
+<ui>
+  <template path="/" mod="@shop/pages" func="createPublicTemplate" />
+  <template path="/admin/" mod="@shop/pages" func="createAdminTemplate" />
+  <page path="/admin/login" mod="@shop/pages" func="createLoginForm" />
+</ui>
+```
+
+Use Dispatcher for event entries and Pages for page/template entries. API routes
+continue to choose the URL event endpoint independently; a template prefix never
+captures an ordinary API request.
