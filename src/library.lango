@@ -331,6 +331,8 @@ export class Control
         visible
         value
         events
+        classes
+        style
     methods
         setValue(value)
         getValue()
@@ -373,6 +375,9 @@ Control(name, type)
     @value = null
     @events = {
     }
+    @classes = []
+    @style = {
+    }
 
 Control:setValue(value)
     @value = value
@@ -389,6 +394,8 @@ Control:definition()
         visible: @visible
         value: @value
         events: @events
+        classes: @classes
+        style: @style
     }
 
 Container(name = null, type = "Container")
@@ -426,6 +433,8 @@ Container:definition()
         enabled: @enabled
         visible: @visible
         events: @events
+        classes: @classes
+        style: @style
     }
 
 Form(formId)
@@ -455,16 +464,10 @@ Button(options)
             @events = options.events
 
 Button:definition()
-    return {
-        type: @type
-        name: @name
-        text: @text
-        event: @event
-        enabled: @enabled
-        visible: @visible
-        value: @value
-        events: @events
-    }
+    result = super.definition()
+    result.text = @text
+    result.event = @event
+    return result
 
 Response(formId, seqno)
     if !is_string(formId) or formId == ""
@@ -919,3 +922,21 @@ pageDefinition(route, selected)
     if !is_object(value) or !is_string(value.type)
         throw "UiPageRequiresControlDefinition"
     return from_json(to_json(value))
+
+test "control builders retain CSS classes and styles outside values"
+    form = new Form("profile")
+    form.classes = ["profile"]
+    form.style = {
+        "--accent": "navy"
+    }
+    button = form.add(new Button("save"))
+    button.classes = ["primary"]
+    button.style = {
+        "background-color": "navy"
+    }
+    definition = form.definition()
+    assert definition.classes[0] == "profile"
+    assert definition.style["--accent"] == "navy"
+    assert definition.controls[0].classes[0] == "primary"
+    assert definition.controls[0].style["background-color"] == "navy"
+    assert definition.controls[0].value == null

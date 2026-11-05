@@ -327,3 +327,25 @@ starts at `appRoot`.
 Use Dispatcher for event entries and Pages for page/template entries. API routes
 continue to choose the URL event endpoint independently; a template prefix never
 captures an ordinary API request.
+
+## Control presentation
+
+Control, Container, Form and Button builders include `classes` and `style` in
+their wire definitions. `classes` is a list of CSS class tokens; `style` maps
+kebab-case CSS property names (including custom properties such as `--accent`)
+to string values. Presentation belongs to definitions or commands, not `vals`.
+
+```lango
+form.saveButton.classes = ["primary"]
+form.saveButton.style = {
+    "background-color": "navy"
+}
+```
+
+For event handlers, the same assignments through `context form` become
+`setProperty` commands. The client validates `classes`/`style` before applying the
+response and supports state rollback. A style command replaces server-managed
+inline declarations; a classes command replaces the full class list. Null clears
+the setting. Browser custom classes and theme defaults are selected explicitly
+with `lango-client/Types`; wire definitions carry type names, never executable
+code. Theme CSS is loaded by the application's HTML shell.
