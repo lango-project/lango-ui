@@ -465,7 +465,7 @@ negotiation. Required fields or changes to controls, commands, value semantics o
 ordering guarantees need a new protocol version. Safe optional metadata may be
 added under version 1.
 
-The compatible starter release set is compiler 0.1.9 with API/UI/client 0.2.0.
+The compatible starter release set is compiler 0.1.10 with API/UI/client 0.2.0.
 The application generator in `lango-client` pins that set and includes server
 validation, shared Pages, a same-origin BrowserHost and a browser import map.
 See the client README for generation and packed-package smoke verification.
